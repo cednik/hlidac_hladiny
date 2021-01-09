@@ -1,13 +1,13 @@
 #include <Arduino.h>
 
-//#include <format.h>
+#include <format.h>
 
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
 
 #include "pinout.hpp"
 
-//using fmt::print;
+using fmt::print;
 
 #define DISPLAY_WIDTH 128
 #define DISPLAY_HEIGHT 32
@@ -30,63 +30,61 @@ inline static void checkReset() {
     esp_reset_reason_t resetReason = esp_reset_reason();
     switch (resetReason) {
     case ESP_RST_UNKNOWN:
-        printf("\tUnknown reset - strange\n");
+        print("\tUnknown reset - strange\n");
         break;
     case ESP_RST_POWERON:
-        printf("\tPoweron reset\n");
+        print("\tPoweron reset\n");
         break;
     case ESP_RST_EXT:
-        printf("\tExternal reset\n");
+        print("\tExternal reset\n");
         break;
     case ESP_RST_SW:
-        printf("\tSoftware reset\n");
+        print("\tSoftware reset\n");
         break;
     case ESP_RST_PANIC:
-        printf("\tReset due to core panic - stop program\n");
+        print("\tReset due to core panic - stop program\n");
         vTaskSuspend(nullptr);
         break;
     case ESP_RST_INT_WDT:
-        printf("\tReset due to interrupt watchdog - stop program\n");
+        print("\tReset due to interrupt watchdog - stop program\n");
         vTaskSuspend(nullptr);
         break;
     case ESP_RST_TASK_WDT:
-        printf("\tReset due to task watchdog - stop program\n");
+        print("\tReset due to task watchdog - stop program\n");
         vTaskSuspend(nullptr);
         break;
     case ESP_RST_WDT:
-        printf("\tReset due to some watchdog - stop program\n");
+        print("\tReset due to some watchdog - stop program\n");
         vTaskSuspend(nullptr);
         break;
     case ESP_RST_DEEPSLEEP:
-        printf("\tWaked from deep sleep\n");
+        print("\tWaked from deep sleep\n");
         break;
     case ESP_RST_BROWNOUT:
-        printf("\tBrownout reset - please check power\n");
+        print("\tBrownout reset - please check power\n");
         break;
     case ESP_RST_SDIO:
-        printf("\tSDIO reset - strange\n");
+        print("\tSDIO reset - strange\n");
         break;
     }
 }
 
 void i2c_scan(TwoWire& wire) {
-    printf("i2c scan:\n");
+    print("i2c scan:\n");
     uint8_t found = 0;
     for(uint8_t i = 1; i != 128; ++i) {
         wire.beginTransmission(i);
         if (wire.endTransmission() == 0) {
-            printf("Device fount at 0x%02X\n", i);
-            //print("Device fount at 0x{:02X}\n", i);
+            print("Device fount at 0x{:02X}\n", i);
             ++found;
         }
     }
-    printf("Found %d devices\n", found);
+    print("Found {} devices\n", found);
 }
 
 void setup() {
     Serial.begin(115200);
-    printf("\nHlidac hladiny\n\t%s %s\n", __DATE__, __TIME__);
-    //print("\nHlidac hladiny\n\t{} {}\n", __DATE__, __TIME__);
+    print(Serial, "\nHlidac hladiny\n\t{} {}\n", __DATE__, __TIME__);
     checkReset();
 
     Wire.begin(PIN_SDA, PIN_SCL);
@@ -94,7 +92,7 @@ void setup() {
 
     bool displayConnected = true;
     if(!display.begin(SSD1306_SWITCHCAPVCC, DISPLAY_ADDR, true, false)) { // SSD1306_SWITCHCAPVCC = generate display voltage from 3.3V internally
-        printf("Display initialization failed\n");
+        print(Serial, "Display initialization failed\n");
         displayConnected = false;
     }
 
@@ -106,7 +104,7 @@ void setup() {
 
         display.setTextSize(2);
         display.setCursor(0, 0);
-        display.print("Hlidac\n\rhladiny");
+        print(display, "Hlidac\n\rhladiny");
         
         display.setTextSize(1);
         
@@ -116,7 +114,7 @@ void setup() {
         // display.print(__TIME__);
         
         display.setCursor(80, 8);
-        display.print("FW v0.1");
+        print(display, "FW v0.1");
 
         display.display();
         delay(2000);
