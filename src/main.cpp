@@ -9,6 +9,8 @@
 
 using fmt::print;
 
+#define I2C_FREQUENCY 100000 // Hz
+
 #define DISPLAY_WIDTH 128
 #define DISPLAY_HEIGHT 32
 #define DISPLAY_ADDR 0x3C
@@ -87,7 +89,7 @@ void setup() {
     print(Serial, "\nHlidac hladiny\n\t{} {}\n", __DATE__, __TIME__);
     checkReset();
 
-    Wire.begin(PIN_SDA, PIN_SCL);
+    Wire.begin(PIN_SDA, PIN_SCL, I2C_FREQUENCY);
     i2c_scan(Wire);
 
     bool displayConnected = true;
