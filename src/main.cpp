@@ -5,6 +5,9 @@
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
 
+
+#include <time.hpp>
+
 #include "pinout.hpp"
 
 using fmt::print;
@@ -24,8 +27,16 @@ Adafruit_SSD1306 display(DISPLAY_WIDTH, DISPLAY_HEIGHT, &Wire);
 
 //typedef uint32_t time_t;
 
-uint16_t us2mm(time_t t) {
+uint16_t uts2mm(time_t t) {
   return float(t) * (SPEED_OF_SOUND / 1000 / 2);
+}
+
+time_t utsMeas(uint8_t trig, uint8_t echo) {
+    digitalWrite(trig, HIGH);
+    wait(usec(20));
+    digitalWrite(trig, LOW);
+    //wait(usec(1));
+    return pulseIn(echo, HIGH);//, (10 / SPEED_OF_SOUND) * 1000000);
 }
 
 inline static void checkReset() {
@@ -119,9 +130,35 @@ void setup() {
         print(display, "FW v0.1");
 
         display.display();
-        delay(2000);
+        delay(500);
 
         display.clearDisplay();
+        display.display();
+        display.setTextSize(2);
+        display.setCursor(0, 0);
+    }
+
+    pinMode(PIN_LED, OUTPUT);
+
+    pinMode(PIN_TRIG, OUTPUT);
+    pinMode(PIN_ECHO, INPUT_PULLUP);
+
+    timeout blink(msec(500));
+    timeout meas(msec(1000));
+    
+    for(;;) {
+        if (blink) {
+            blink.ack();
+            digitalWrite(PIN_LED, digitalRead(PIN_LED) == LOW);
+        }
+        if (meas) {
+            meas.ack();
+            const uint16_t mm = uts2mm(utsMeas(PIN_TRIG, PIN_ECHO));
+            display.setCursor(0, 0);
+            print(display, "d: {:4} mm\n", mm);
+            print(Serial , "d: {:4} mm\n", mm);
+            display.display();
+        }
     }
 }
 
