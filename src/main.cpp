@@ -20,23 +20,31 @@ using fmt::print;
 
 Adafruit_SSD1306 display(DISPLAY_WIDTH, DISPLAY_HEIGHT, &Wire);
 
-#define MAX_PULSE_LENGTH 25000 // us
-#define MAX_RANGE 4000 // mm
-
-#define SPEED_OF_SOUND 343.0 // m/s @ 20 °C dry air
-
-//typedef uint32_t time_t;
-
-uint16_t uts2mm(time_t t) {
-  return float(t) * (SPEED_OF_SOUND / 1000 / 2);
-}
-
-time_t utsMeas(uint8_t trig, uint8_t echo) {
-    digitalWrite(trig, HIGH);
-    wait(usec(20));
-    digitalWrite(trig, LOW);
-    //wait(usec(1));
-    return pulseIn(echo, HIGH);//, (10 / SPEED_OF_SOUND) * 1000000);
+int16_t utsMeas(HardwareSerial& port) {
+    port.flush();
+    port.write(0x55); // start meas command
+    uint8_t checksum = 0xff;
+    int16_t res = 0;
+    timeout t(msec(100));
+    while (port.available() < 4) {
+        if (t) {
+            port.flush();
+            return -1;
+        }
+    }
+    if (port.read() != 0xff) {
+        port.flush();
+        return -2;
+    }
+    res = port.read();
+    checksum += res;
+    res <<= 8;
+    res |= port.read();
+    checksum += (res & 0xFF);
+    checksum -= port.read();
+    if (checksum != 0)
+        return -res;
+    return res;
 }
 
 inline static void checkReset() {
@@ -142,6 +150,8 @@ void setup() {
 
     pinMode(PIN_TRIG, OUTPUT);
     pinMode(PIN_ECHO, INPUT_PULLUP);
+    HardwareSerial& uts = Serial1;
+    uts.begin(9600, SERIAL_8N1, PIN_ECHO, PIN_TRIG);
 
     timeout blink(msec(500));
     timeout meas(msec(1000));
@@ -153,7 +163,7 @@ void setup() {
         }
         if (meas) {
             meas.ack();
-            const uint16_t mm = uts2mm(utsMeas(PIN_TRIG, PIN_ECHO));
+            const uint16_t mm = utsMeas(uts);
             display.setCursor(0, 0);
             print(display, "d: {:4} mm\n", mm);
             print(Serial , "d: {:4} mm\n", mm);
