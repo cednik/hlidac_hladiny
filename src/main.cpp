@@ -5,6 +5,8 @@
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
 
+#include <DHT.h>
+
 #include <SmartLeds.h>
 
 #include <time.hpp>
@@ -25,6 +27,8 @@ using fmt::print;
 Adafruit_SSD1306 display(DISPLAY_WIDTH, DISPLAY_HEIGHT, &Wire);
 
 SmartLed iLeds(LED_WS2812B, ILEDS_COUNT, PIN_ILED, ILEDS_CHANNEL, SingleBuffer);
+
+DHT thermometer(PIN_DHT11, DHT11);
 
 int16_t utsMeas(HardwareSerial& port) {
     port.flush();
@@ -180,6 +184,8 @@ void setup() {
     iLeds.show();
     iLeds.wait();
 
+    thermometer.begin();
+
     timeout blink(msec(500));
     timeout meas(msec(1000));
     
@@ -202,9 +208,12 @@ void setup() {
         if (meas) {
             meas.ack();
             const int16_t mm = utsMeas(uts);
+            const float temp = thermometer.readTemperature();
+            const float humid = thermometer.readHumidity();
+            
             display.setCursor(0, 0);
-            print(display, "d: {:4} mm\n", mm);
-            print(Serial , "d: {:4} mm\n", mm);
+            print(display, "d: {:4} mm; t: {:4.1f} °C; h: {:2.0f}\n", mm, temp, humid);
+            print(Serial , "d: {:4} mm; t: {:4.1f} °C; h: {:2.0f}\n", mm, temp, humid);
             display.display();
         }
     }
