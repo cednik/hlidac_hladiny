@@ -5,6 +5,7 @@
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
 
+#include <SmartLeds.h>
 
 #include <time.hpp>
 
@@ -18,7 +19,12 @@ using fmt::print;
 #define DISPLAY_HEIGHT 32
 #define DISPLAY_ADDR 0x3C
 
+#define ILEDS_COUNT 8
+#define ILEDS_CHANNEL 0
+
 Adafruit_SSD1306 display(DISPLAY_WIDTH, DISPLAY_HEIGHT, &Wire);
+
+SmartLed iLeds(LED_WS2812B, ILEDS_COUNT, PIN_ILED, ILEDS_CHANNEL, SingleBuffer);
 
 int16_t utsMeas(HardwareSerial& port) {
     port.flush();
@@ -148,10 +154,27 @@ void setup() {
 
     pinMode(PIN_LED, OUTPUT);
 
+    pinMode(PIN_BUZZER, OUTPUT);
+    digitalWrite(PIN_BUZZER, HIGH);
+    wait(msec(5000));
+    digitalWrite(PIN_BUZZER, LOW);
+    wait(msec(2000));
+
+    pinMode(PIN_RELAY, OUTPUT);
+    digitalWrite(PIN_RELAY, HIGH);
+    wait(msec(1000));
+    digitalWrite(PIN_RELAY, LOW);
+
     pinMode(PIN_TRIG, OUTPUT);
     pinMode(PIN_ECHO, INPUT_PULLUP);
     HardwareSerial& uts = Serial1;
     uts.begin(9600, SERIAL_8N1, PIN_ECHO, PIN_TRIG);
+
+    pinMode(PIN_ILED, OUTPUT);
+    for (uint8_t i = 0; i != ILEDS_COUNT; ++i)
+        iLeds[i] = Rgb(16, 16, 16);
+    iLeds.show();
+    iLeds.wait();
 
     timeout blink(msec(500));
     timeout meas(msec(1000));
@@ -159,11 +182,22 @@ void setup() {
     for(;;) {
         if (blink) {
             blink.ack();
-            digitalWrite(PIN_LED, digitalRead(PIN_LED) == LOW);
+            Rgb c;
+            if (digitalRead(PIN_LED) == LOW) {
+                digitalWrite(PIN_LED, HIGH);
+                c = Rgb(16, 16, 16);
+            } else {
+                digitalWrite(PIN_LED, LOW);
+                c = Rgb(0, 0, 0);
+            }
+            for (uint8_t i = 0; i != ILEDS_COUNT; ++i)
+                iLeds[i] = c;
+            iLeds.show();
+            iLeds.wait();
         }
         if (meas) {
             meas.ack();
-            const uint16_t mm = utsMeas(uts);
+            const int16_t mm = utsMeas(uts);
             display.setCursor(0, 0);
             print(display, "d: {:4} mm\n", mm);
             print(Serial , "d: {:4} mm\n", mm);
