@@ -6,6 +6,7 @@
 #include <Adafruit_SSD1306.h>
 
 #include <DHT.h>
+#include <RTClib.h>
 
 #include <SmartLeds.h>
 
@@ -29,6 +30,8 @@ Adafruit_SSD1306 display(DISPLAY_WIDTH, DISPLAY_HEIGHT, &Wire);
 SmartLed iLeds(LED_WS2812B, ILEDS_COUNT, PIN_ILED, ILEDS_CHANNEL, SingleBuffer);
 
 DHT thermometer(PIN_DHT11, DHT11);
+
+RTC_DS1307 rtc;
 
 int16_t utsMeas(HardwareSerial& port) {
     port.flush();
@@ -161,15 +164,15 @@ void setup() {
     pinMode(PIN_BUZZER, OUTPUT);
     print("Buzzer on\n");
     digitalWrite(PIN_BUZZER, HIGH);
-    wait(msec(2000));
+    wait(msec(1000));
     digitalWrite(PIN_BUZZER, LOW);
     print("Buzzer off\n");
-    wait(msec(2000));
+    wait(msec(1000));
 
     pinMode(PIN_RELAY, OUTPUT);
     print("Relay on\n");
     digitalWrite(PIN_RELAY, HIGH);
-    wait(msec(2000));
+    wait(msec(1000));
     digitalWrite(PIN_RELAY, LOW);
     print("Relay off\n");
 
@@ -185,6 +188,19 @@ void setup() {
     iLeds.wait();
 
     thermometer.begin();
+    
+    bool rtcConnected = false;
+    if (rtc.begin(&Wire)) {
+        rtcConnected = true;
+        if (rtc.isrunning()) {
+            print(Serial, "RTC time: {}\n", rtc.now().timestamp(DateTime::TIMESTAMP_FULL).c_str());
+        } else {
+            print(Serial, "RTC is not running!\n");
+        }
+    } else {
+        print(Serial, "RTC not connected!\n");
+    }
+    
 
     timeout blink(msec(500));
     timeout meas(msec(1000));
@@ -215,6 +231,66 @@ void setup() {
             print(display, "d: {:4} mm; t: {:4.1f} °C; h: {:2.0f}\n", mm, temp, humid);
             print(Serial , "d: {:4} mm; t: {:4.1f} °C; h: {:2.0f}\n", mm, temp, humid);
             display.display();
+        }
+        if (Serial.available()) {
+            char c = Serial.read();
+            switch (c) {
+            case '\n':
+            case '\r':
+                Serial.write('\n');
+                break;
+            case 'T':
+                if (!rtcConnected) {
+                    print(Serial, "No RTC connected.\n");
+                } else {
+                    print(Serial, "Insert time in ISO 8601 format (2021-09-24T13:48:12) and press enter:\n\t");
+                    constexpr size_t BUFLEN = 20;
+                    char buf[BUFLEN];
+                    int i = 0;
+                    timeout timeOut(sec(5));
+                    while (!timeOut) {
+                        if (Serial.available()) {
+                            char c = Serial.read();
+                            if (c == '\b') {
+                                if (i > 0) {
+                                    --i;
+                                    Serial.write(c);
+                                } else {
+                                    Serial.write('\a');
+                                }
+                            } else if (c == '\n' || c == '\r') {
+                                Serial.write('\n');
+                                if (i != (BUFLEN-1)) {
+                                    print(Serial, "Too short input ({}/{}), aborting.\n", i, (BUFLEN-1));
+                                } else {
+                                    buf[i++] = '\0';
+                                    DateTime input(buf);
+                                    if (!input.isValid()) {
+                                        print(Serial, "Invalid input \"{}\"\n", buf);
+                                    } else {
+                                        rtc.adjust(input);
+                                        print(Serial, "RTC time set to {}\n", rtc.now().timestamp(DateTime::TIMESTAMP_FULL).c_str());
+                                    }
+                                }
+                                timeOut.cancel();
+                                break;
+                            } else {
+                                if (i == BUFLEN) {
+                                    Serial.write('\a');
+                                } else {
+                                    buf[i++] = c;
+                                    Serial.write(c);
+                                }
+                            }
+                            timeOut.restart();
+                        }
+                    }
+                    if (timeOut) {
+                        print(Serial, "\nTimeout.\n");
+                    }
+                }
+                break;
+            }
         }
     }
 }
