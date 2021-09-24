@@ -155,15 +155,19 @@ void setup() {
     pinMode(PIN_LED, OUTPUT);
 
     pinMode(PIN_BUZZER, OUTPUT);
+    print("Buzzer on\n");
     digitalWrite(PIN_BUZZER, HIGH);
-    wait(msec(5000));
+    wait(msec(2000));
     digitalWrite(PIN_BUZZER, LOW);
+    print("Buzzer off\n");
     wait(msec(2000));
 
     pinMode(PIN_RELAY, OUTPUT);
+    print("Relay on\n");
     digitalWrite(PIN_RELAY, HIGH);
-    wait(msec(1000));
+    wait(msec(2000));
     digitalWrite(PIN_RELAY, LOW);
+    print("Relay off\n");
 
     pinMode(PIN_TRIG, OUTPUT);
     pinMode(PIN_ECHO, INPUT_PULLUP);
