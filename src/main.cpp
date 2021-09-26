@@ -1,4 +1,12 @@
 #include <Arduino.h>
+#include <WiFi.h>
+
+#include "nvs_flash.h"
+#include "nvs.h"
+#include "esp_system.h"
+
+#include <string>
+#include <cctype>
 
 #include <format.h>
 
@@ -15,6 +23,9 @@
 #include "pinout.hpp"
 
 using fmt::print;
+
+#define NVS_KEY_WIFI_SSID "WiFi_SSID"
+#define NVS_KEY_WIFI_PSWD "WiFi_PSWD"
 
 #define I2C_FREQUENCY 100000 // Hz
 
@@ -116,6 +127,133 @@ void i2c_scan(TwoWire& wire) {
     print("Found {} devices\n", found);
 }
 
+esp_err_t nvs_get_string(nvs_handle handle, const char *key, std::string& out_value) {
+    size_t len = 0;
+    esp_err_t err = nvs_get_str(handle, key, nullptr, &len);
+    if (err != ESP_OK)
+        return err;
+    print(Serial, "Size of {} is {} bytes\n", key, len);
+    //--len; // ignore trailing zero
+    out_value.resize(len);
+    err = nvs_get_str(handle, key, &out_value[0], &len);
+    out_value.pop_back(); // remove original C-string trailing zero
+    return err;
+}
+
+std::string enctype2str(uint8_t auth) {
+    switch (auth) {
+        case WIFI_AUTH_OPEN: return "open";
+        case WIFI_AUTH_WEP: return "WEP";
+        case WIFI_AUTH_WPA_PSK: return "WPA";
+        case WIFI_AUTH_WPA2_PSK: return "WPA2";
+        case WIFI_AUTH_WPA_WPA2_PSK: return "WPA_WPA2";
+        case WIFI_AUTH_WPA2_ENTERPRISE : return "WPA2_ENTERPRISE";
+        default: return fmt::format("Unknown[{}]", static_cast<int>(auth));
+    }
+}
+
+template <class Stream>
+std::string read_string(Stream& stream, const std::string& msg = "", timeout::time_type tmout = 0, size_t max_len = 0) {
+    print(stream, msg);
+    std::string res;
+    if (max_len != 0) {
+        res.reserve(max_len);
+    }
+    timeout timeOut(tmout);
+    if (tmout == 0)
+        timeOut.cancel();
+    while (!timeOut) {
+        if (stream.available()) {
+            char c = stream.read();
+            if (c == '\b') {
+                if (!res.empty()) {
+                    res.pop_back();
+                    stream.write(c);
+                } else {
+                    stream.write('\a');
+                }
+            } else if (c == '\n' || c == '\r') {
+                stream.write('\n');
+                timeOut.reset(msec(2));
+                timeOut.restart();
+                while (!timeOut) {
+                    switch (stream.peek()) {
+                    case -1:
+                        continue;
+                    case '\n':
+                    case '\r':
+                        stream.read();
+                    default:
+                        timeOut.force();
+                        break;
+                    }
+                }
+                timeOut.cancel();
+                break;
+            } else {
+                if (max_len > 0 && res.length() == max_len) {
+                    stream.write('\a');
+                } else {
+                    res.push_back(c);
+                    stream.write(c);
+                }
+            }
+            if (timeOut.running())
+                timeOut.restart();
+        }
+    }
+    return res;
+}
+
+void wifi_save_and_connect(nvs_handle nvsHandle, const std::string& wifi_ssid, const std::string& wifi_pswd) {
+    esp_err_t err = nvs_set_str(nvsHandle, NVS_KEY_WIFI_SSID, wifi_ssid.c_str());
+    if (err != ESP_OK) {
+        print(Serial, "\nSaving SSID failed, because {}\n", esp_err_to_name(err));
+        return;
+    }
+    err = nvs_set_str(nvsHandle, NVS_KEY_WIFI_PSWD, wifi_pswd.c_str());
+    if (err != ESP_OK) {
+        print(Serial, "\nSaving PSWD failed, because {}\n", esp_err_to_name(err));
+        return;
+    }
+    err = nvs_commit(nvsHandle);
+    if (err != ESP_OK) {
+        print(Serial, "\nNVS commit failed\n");
+        return;
+    }
+    WiFi.disconnect();
+    WiFi.mode(WIFI_STA);
+    WiFi.begin(wifi_ssid.c_str(), wifi_pswd.c_str());
+    WiFi.setAutoReconnect(true);
+}
+
+bool isInt(const std::string& str, int* pRes = nullptr) {
+    int res = 0;
+    if (str.empty())
+        return false;
+    auto c = str.begin();
+    while (isspace(*c)) {
+        if (++c == str.end())
+            return false;
+    }
+    bool minus = false;
+    if (*c == '-') {
+        minus = true;
+        if (++c == str.end())
+            return false;
+    }
+    for (; c != str.end(); ++c) {
+        if (*c < '0' || *c > '9')
+            return false;
+        res = res * 10 + *c - '0';
+    }
+    if (minus)
+        res = -res;
+    if (pRes)
+        *pRes = res;
+    return true;
+}
+
 void setup() {
     Serial.begin(115200);
     print(Serial, "\nHlidac hladiny\n\t{} {}\n", __DATE__, __TIME__);
@@ -167,14 +305,14 @@ void setup() {
     wait(msec(1000));
     digitalWrite(PIN_BUZZER, LOW);
     print("Buzzer off\n");
-    wait(msec(1000));
+    //wait(msec(1000));
 
     pinMode(PIN_RELAY, OUTPUT);
-    print("Relay on\n");
+    /*print("Relay on\n");
     digitalWrite(PIN_RELAY, HIGH);
     wait(msec(1000));
     digitalWrite(PIN_RELAY, LOW);
-    print("Relay off\n");
+    print("Relay off\n");*/
 
     pinMode(PIN_TRIG, OUTPUT);
     pinMode(PIN_ECHO, INPUT_PULLUP);
@@ -201,9 +339,49 @@ void setup() {
         print(Serial, "RTC not connected!\n");
     }
     
+    // Initialize NVS
+    esp_err_t err = nvs_flash_init();
+    if (err == ESP_ERR_NVS_NO_FREE_PAGES || err == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+        print(Serial, "NVS partition was truncated and needs to be erased\n");
+        // Retry nvs_flash_init
+        ESP_ERROR_CHECK(nvs_flash_erase());
+        err = nvs_flash_init();
+    }
+    ESP_ERROR_CHECK( err );
+    // Open
+    print(Serial, "Opening Non-Volatile Storage (NVS) handle... ");
+    // Handle will automatically close when going out of scope or when it's reset.
+    nvs_handle nvsHandle;
+    err = nvs_open("storage", NVS_READWRITE, &nvsHandle);
+    if (err != ESP_OK) {
+        print(Serial, "Error {} opening NVS handle!\n", esp_err_to_name(err));
+        nvsHandle = 0;
+    } else {
+        print(Serial, "\n");
+    }
+
+    std::string wifi_ssid;
+    std::string wifi_pswd;
+    err = nvs_get_string(nvsHandle, NVS_KEY_WIFI_SSID, wifi_ssid);
+    switch (err) {
+    case ESP_OK:
+        nvs_get_string(nvsHandle, NVS_KEY_WIFI_PSWD, wifi_pswd);
+        WiFi.mode(WIFI_STA);
+        WiFi.begin(wifi_ssid.c_str(), wifi_pswd.c_str());
+        WiFi.setAutoReconnect(true);
+        break;
+    case ESP_ERR_NVS_NOT_FOUND:
+        print(Serial, "No WiFi set\n");
+        break;
+    default:
+        print(Serial, "Error {} {} reading Wi-Fi SSID!\n", err, esp_err_to_name(err));
+        break;
+    }
 
     timeout blink(msec(500));
     timeout meas(msec(1000));
+
+    wl_status_t wifi_last_status = WiFi.status();
     
     for(;;) {
         if (blink) {
@@ -232,6 +410,30 @@ void setup() {
             print(Serial , "d: {:4} mm; t: {:4.1f} °C; h: {:2.0f}\n", mm, temp, humid);
             display.display();
         }
+        wl_status_t wifi_status = WiFi.status();
+        if (wifi_status != wifi_last_status) {
+            switch (wifi_status) {
+            case WL_IDLE_STATUS:
+                print(Serial, "Wi-Fi idle\n");
+                break;
+            case WL_CONNECTED:
+                print(Serial, "Wi-Fi connected: IP {}\n", WiFi.localIP().toString().c_str());
+                break;
+            case WL_CONNECT_FAILED:
+                print(Serial, "Wi-Fi connecting failed\n");
+                break;
+            case WL_CONNECTION_LOST:
+                print(Serial, "Wi-Fi connection lost\n");
+                break;
+            case WL_DISCONNECTED:
+                print(Serial, "Wi-Fi disconnected\n");
+                break;
+            default:
+                print(Serial, "Wi-Fi status {}\n", int(wifi_status));
+                break;
+            }
+            wifi_last_status = wifi_status;
+        }
         if (Serial.available()) {
             char c = Serial.read();
             switch (c) {
@@ -243,51 +445,63 @@ void setup() {
                 if (!rtcConnected) {
                     print(Serial, "No RTC connected.\n");
                 } else {
-                    print(Serial, "Insert time in ISO 8601 format (2021-09-24T13:48:12) and press enter:\n\t");
-                    constexpr size_t BUFLEN = 20;
-                    char buf[BUFLEN];
-                    int i = 0;
-                    timeout timeOut(sec(5));
-                    while (!timeOut) {
-                        if (Serial.available()) {
-                            char c = Serial.read();
-                            if (c == '\b') {
-                                if (i > 0) {
-                                    --i;
-                                    Serial.write(c);
-                                } else {
-                                    Serial.write('\a');
-                                }
-                            } else if (c == '\n' || c == '\r') {
-                                Serial.write('\n');
-                                if (i != (BUFLEN-1)) {
-                                    print(Serial, "Too short input ({}/{}), aborting.\n", i, (BUFLEN-1));
-                                } else {
-                                    buf[i++] = '\0';
-                                    DateTime input(buf);
-                                    if (!input.isValid()) {
-                                        print(Serial, "Invalid input \"{}\"\n", buf);
-                                    } else {
-                                        rtc.adjust(input);
-                                        print(Serial, "RTC time set to {}\n", rtc.now().timestamp(DateTime::TIMESTAMP_FULL).c_str());
-                                    }
-                                }
-                                timeOut.cancel();
-                                break;
-                            } else {
-                                if (i == BUFLEN) {
-                                    Serial.write('\a');
-                                } else {
-                                    buf[i++] = c;
-                                    Serial.write(c);
-                                }
-                            }
-                            timeOut.restart();
+                    constexpr size_t EXPECTED_LEN = 19;
+                    std::string input = read_string(Serial, "Insert time in ISO 8601 format (2021-09-24T13:48:12) and press enter:\n\t", 5, EXPECTED_LEN);
+                    if (input.length() != EXPECTED_LEN) {
+                        print(Serial, "Too short input ({}/{}).\n", input.length(), EXPECTED_LEN);
+                    } else {
+                        DateTime new_time(input.c_str());
+                        if (!new_time.isValid()) {
+                            print(Serial, "Invalid input \"{}\"\n", input);
+                        } else {
+                            rtc.adjust(new_time);
+                            print(Serial, "RTC time set to {}\n", rtc.now().timestamp(DateTime::TIMESTAMP_FULL).c_str());
                         }
                     }
-                    if (timeOut) {
-                        print(Serial, "\nTimeout.\n");
+                }
+                break;
+            case 'W': {
+                    print(Serial, "Scanning networks:\n");
+                    int16_t networks = WiFi.scanNetworks(false, true);
+                    String ssid;
+                    uint8_t encryption;
+                    int32_t rssi;
+                    uint8_t* bssid;
+                    int32_t channel;
+                    int i;
+                    print(Serial, "\tindex   SSID                                encryption           RSSI        channel MAC\n");
+                    for(i = 0; i != networks; ++i) {
+                        bool res = WiFi.getNetworkInfo(i, ssid, encryption, rssi, bssid, channel);
+                        print(Serial, "\t{}{:2}\t{:32}\t{:15}\t{:4} dBm\t  {:2}  \t{:02X}:{:02X}:{:02X}:{:02X}:{:02X}:{:02X}\n", res ? ' ' : '!',
+                            i, ssid.c_str(), enctype2str(encryption), rssi, channel, bssid[0], bssid[1], bssid[2], bssid[3], bssid[4], bssid[5]);
                     }
+                    std::string cmd = read_string(Serial, "Type C for disable Wi-Fi, N for enter another SSID or selected Wi-Fi index and press enter: ");
+                    if (cmd.empty()) {
+                        print(Serial, "No input\n");
+                    } else if (cmd == "C") {
+                        err = nvs_erase_key(nvsHandle, NVS_KEY_WIFI_SSID);
+                        if (err == ESP_OK)
+                            print(Serial, "\nWi-Fi disabled\n");
+                        else
+                            print(Serial, "\nDisabling Wi-Fi failed, because {}\n", esp_err_to_name(err));
+                    } else if (cmd == "N") {
+                        wifi_ssid = read_string(Serial, "Enter SSID and press enter: ");
+                        wifi_pswd = read_string(Serial, "Enter PSWD and press enter: ");
+                        wifi_save_and_connect(nvsHandle, wifi_ssid, wifi_pswd);
+                    } else if (isInt(cmd, &i)) {
+                        bool res = WiFi.getNetworkInfo(i, ssid, encryption, rssi, bssid, channel);
+                        if (!res) {
+                            print(Serial, "Network {} {} is somehow invalid\n", i, ssid.c_str());
+                        } else { 
+                            wifi_ssid = ssid.c_str();
+                            print(Serial, "Selected network {}: {}\n", i, wifi_ssid);
+                            wifi_pswd = read_string(Serial, "Enter PSWD and press enter: ");
+                            wifi_save_and_connect(nvsHandle, wifi_ssid, wifi_pswd);
+                        }
+                    } else {
+                        print(Serial, "Unknown command {}\n", cmd);
+                    }
+                    WiFi.scanDelete();
                 }
                 break;
             }
