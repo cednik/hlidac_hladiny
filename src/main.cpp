@@ -19,6 +19,8 @@
 
 #include <SmartLeds.h>
 
+#include <BasicOTA.hpp>
+
 #include <time.hpp>
 
 #include "pinout.hpp"
@@ -392,6 +394,8 @@ void setup() {
         break;
     }
 
+    BasicOTA OTA;
+
     timeout blink(msec(500));
     timeout meas(msec(1000));
 
@@ -435,6 +439,7 @@ void setup() {
                 if (!MDNS.begin(my_name.c_str())) {
                     print(Serial, "Error setting up MDNS responder!");
                 }
+                OTA.begin();
                 break;
             case WL_CONNECT_FAILED:
                 print(Serial, "Wi-Fi connecting failed\n");
@@ -540,6 +545,7 @@ void setup() {
                 break;
             }
         }
+        OTA.handle();
     }
 }
 
