@@ -31,6 +31,8 @@ using fmt::print;
 #define NVS_KEY_WIFI_PSWD "WiFi_PSWD"
 #define NVS_KEY_NAME "NAME"
 
+#define USER_SERVER_PORT 54321
+
 #define I2C_FREQUENCY 100000 // Hz
 
 #define DISPLAY_WIDTH 128
@@ -400,6 +402,10 @@ void setup() {
     timeout meas(msec(1000));
 
     wl_status_t wifi_last_status = WiFi.status();
+
+    WiFiServer user_server(USER_SERVER_PORT, 1);
+    WiFiClient user_client;
+    bool user_client_connected = false;
     
     for(;;) {
         if (blink) {
@@ -440,6 +446,7 @@ void setup() {
                     print(Serial, "Error setting up MDNS responder!");
                 }
                 OTA.begin();
+                user_server.begin();
                 break;
             case WL_CONNECT_FAILED:
                 print(Serial, "Wi-Fi connecting failed\n");
@@ -449,12 +456,38 @@ void setup() {
                 break;
             case WL_DISCONNECTED:
                 print(Serial, "Wi-Fi disconnected\n");
+                user_server.end();
                 break;
             default:
                 print(Serial, "Wi-Fi status {}\n", int(wifi_status));
                 break;
             }
             wifi_last_status = wifi_status;
+        }
+        if (!user_client) {
+            if (user_client_connected) {
+                print(Serial, "Client disconnected\n");
+                user_client_connected = false;
+            }
+            if (user_client = user_server.accept()) {
+                print(Serial, "Accepted client at {}\n", user_client.remoteIP().toString().c_str());
+                user_client_connected = true;
+            }
+        } else {
+            if (user_client.available()) {
+                char c = user_client.read();
+                switch (c) {
+                case '\n':
+                case '\r':
+                    Serial.write('\n');
+                    user_client.write('\n');
+                    break;
+                default:
+                    Serial.write(c);
+                    user_client.write(c);
+                    break;
+                }
+            }
         }
         if (Serial.available()) {
             char c = Serial.read();
