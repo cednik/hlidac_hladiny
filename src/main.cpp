@@ -1,5 +1,6 @@
 #include <Arduino.h>
 #include <WiFi.h>
+#include <ESPmDNS.h>
 
 #include "nvs_flash.h"
 #include "nvs.h"
@@ -26,6 +27,7 @@ using fmt::print;
 
 #define NVS_KEY_WIFI_SSID "WiFi_SSID"
 #define NVS_KEY_WIFI_PSWD "WiFi_PSWD"
+#define NVS_KEY_NAME "NAME"
 
 #define I2C_FREQUENCY 100000 // Hz
 
@@ -132,8 +134,6 @@ esp_err_t nvs_get_string(nvs_handle handle, const char *key, std::string& out_va
     esp_err_t err = nvs_get_str(handle, key, nullptr, &len);
     if (err != ESP_OK)
         return err;
-    print(Serial, "Size of {} is {} bytes\n", key, len);
-    //--len; // ignore trailing zero
     out_value.resize(len);
     err = nvs_get_str(handle, key, &out_value[0], &len);
     out_value.pop_back(); // remove original C-string trailing zero
@@ -360,6 +360,20 @@ void setup() {
         print(Serial, "\n");
     }
 
+    std::string my_name = "Studna";
+    err = nvs_get_string(nvsHandle, NVS_KEY_NAME, my_name);
+    switch (err) {
+    case ESP_OK:
+        break;
+    case ESP_ERR_NVS_NOT_FOUND:
+        print(Serial, "No name set.\n");
+        break;
+    default:
+        print(Serial, "Error {} {} reading name!\n", err, esp_err_to_name(err));
+        break;
+    }
+    print(Serial, "Hi, I'm {}.\n", my_name);
+
     std::string wifi_ssid;
     std::string wifi_pswd;
     err = nvs_get_string(nvsHandle, NVS_KEY_WIFI_SSID, wifi_ssid);
@@ -418,6 +432,9 @@ void setup() {
                 break;
             case WL_CONNECTED:
                 print(Serial, "Wi-Fi connected: IP {}\n", WiFi.localIP().toString().c_str());
+                if (!MDNS.begin(my_name.c_str())) {
+                    print(Serial, "Error setting up MDNS responder!");
+                }
                 break;
             case WL_CONNECT_FAILED:
                 print(Serial, "Wi-Fi connecting failed\n");
@@ -502,6 +519,23 @@ void setup() {
                         print(Serial, "Unknown command {}\n", cmd);
                     }
                     WiFi.scanDelete();
+                }
+                break;
+            case 'N':
+                my_name = read_string(Serial, "Enter new device name: ", 0, 64);
+                if (wifi_status == WL_CONNECTED) {
+                    if (!MDNS.begin(my_name.c_str())) {
+                        print(Serial, "Error setting up MDNS responder!");
+                    }
+                }
+                err = nvs_set_str(nvsHandle, NVS_KEY_NAME, my_name.c_str());
+                if (err != ESP_OK) {
+                    print(Serial, "\nSaving name failed, because {}\n", esp_err_to_name(err));
+                    break;
+                }
+                err = nvs_commit(nvsHandle);
+                if (err != ESP_OK) {
+                    print(Serial, "\nNVS commit failed\n");
                 }
                 break;
             }
