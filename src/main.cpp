@@ -209,20 +209,21 @@ std::string read_string(Stream& stream, const std::string& msg = "", timeout::ti
     return res;
 }
 
-void wifi_save_and_connect(nvs_handle nvsHandle, const std::string& wifi_ssid, const std::string& wifi_pswd) {
+template <class Stream>
+void wifi_save_and_connect(nvs_handle nvsHandle, const std::string& wifi_ssid, const std::string& wifi_pswd, Stream& debug) {
     esp_err_t err = nvs_set_str(nvsHandle, NVS_KEY_WIFI_SSID, wifi_ssid.c_str());
     if (err != ESP_OK) {
-        print(Serial, "\nSaving SSID failed, because {}\n", esp_err_to_name(err));
+        print(debug, "\nSaving SSID failed, because {}\n", esp_err_to_name(err));
         return;
     }
     err = nvs_set_str(nvsHandle, NVS_KEY_WIFI_PSWD, wifi_pswd.c_str());
     if (err != ESP_OK) {
-        print(Serial, "\nSaving PSWD failed, because {}\n", esp_err_to_name(err));
+        print(debug, "\nSaving PSWD failed, because {}\n", esp_err_to_name(err));
         return;
     }
     err = nvs_commit(nvsHandle);
     if (err != ESP_OK) {
-        print(Serial, "\nNVS commit failed\n");
+        print(debug, "\nNVS commit failed\n");
         return;
     }
     WiFi.disconnect();
@@ -230,6 +231,7 @@ void wifi_save_and_connect(nvs_handle nvsHandle, const std::string& wifi_ssid, c
     WiFi.begin(wifi_ssid.c_str(), wifi_pswd.c_str());
     WiFi.setAutoReconnect(true);
 }
+//void wifi_save_and_connect(nvs_handle nvsHandle, const std::string& wifi_ssid) { wifi_save_and_connect(nvsHandle, wifi_ssid, wifi_pswd, Serial); }
 
 bool isInt(const std::string& str, int* pRes = nullptr) {
     int res = 0;
@@ -406,6 +408,7 @@ void setup() {
     WiFiServer user_server(USER_SERVER_PORT, 1);
     WiFiClient user_client;
     bool user_client_connected = false;
+    Stream* user_stream = &Serial;
     
     for(;;) {
         if (blink) {
@@ -431,7 +434,7 @@ void setup() {
             
             display.setCursor(0, 0);
             print(display, "d: {:4} mm; t: {:4.1f} °C; h: {:2.0f}\n", mm, temp, humid);
-            print(Serial , "d: {:4} mm; t: {:4.1f} °C; h: {:2.0f}\n", mm, temp, humid);
+            print(*user_stream, "d: {:4} mm; t: {:4.1f} °C; h: {:2.0f}\n", mm, temp, humid);
             display.display();
         }
         wl_status_t wifi_status = WiFi.status();
@@ -468,55 +471,44 @@ void setup() {
             if (user_client_connected) {
                 print(Serial, "Client disconnected\n");
                 user_client_connected = false;
+                user_stream = &Serial;
             }
             if (user_client = user_server.accept()) {
                 print(Serial, "Accepted client at {}\n", user_client.remoteIP().toString().c_str());
                 user_client_connected = true;
-            }
-        } else {
-            if (user_client.available()) {
-                char c = user_client.read();
-                switch (c) {
-                case '\n':
-                case '\r':
-                    Serial.write('\n');
-                    user_client.write('\n');
-                    break;
-                default:
-                    Serial.write(c);
-                    user_client.write(c);
-                    break;
-                }
+                print(user_client, "Hi, I'm {}.\n", my_name);
+                print(user_client, "RTC time: {}\n", rtc.now().timestamp(DateTime::TIMESTAMP_FULL).c_str());
+                user_stream = &user_client;
             }
         }
-        if (Serial.available()) {
-            char c = Serial.read();
+        if (user_stream->available()) {
+            char c = user_stream->read();
             switch (c) {
             case '\n':
             case '\r':
-                Serial.write('\n');
+                user_stream->write('\n');
                 break;
             case 'T':
                 if (!rtcConnected) {
-                    print(Serial, "No RTC connected.\n");
+                    print(*user_stream, "No RTC connected.\n");
                 } else {
                     constexpr size_t EXPECTED_LEN = 19;
-                    std::string input = read_string(Serial, "Insert time in ISO 8601 format (2021-09-24T13:48:12) and press enter:\n\t", 5, EXPECTED_LEN);
+                    std::string input = read_string(*user_stream, "Insert time in ISO 8601 format (2021-09-24T13:48:12) and press enter:\n\t", 5, EXPECTED_LEN);
                     if (input.length() != EXPECTED_LEN) {
-                        print(Serial, "Too short input ({}/{}).\n", input.length(), EXPECTED_LEN);
+                        print(*user_stream, "Too short input ({}/{}).\n", input.length(), EXPECTED_LEN);
                     } else {
                         DateTime new_time(input.c_str());
                         if (!new_time.isValid()) {
-                            print(Serial, "Invalid input \"{}\"\n", input);
+                            print(*user_stream, "Invalid input \"{}\"\n", input);
                         } else {
                             rtc.adjust(new_time);
-                            print(Serial, "RTC time set to {}\n", rtc.now().timestamp(DateTime::TIMESTAMP_FULL).c_str());
+                            print(*user_stream, "RTC time set to {}\n", rtc.now().timestamp(DateTime::TIMESTAMP_FULL).c_str());
                         }
                     }
                 }
                 break;
             case 'W': {
-                    print(Serial, "Scanning networks:\n");
+                    print(*user_stream, "Scanning networks:\n");
                     int16_t networks = WiFi.scanNetworks(false, true);
                     String ssid;
                     uint8_t encryption;
@@ -524,56 +516,56 @@ void setup() {
                     uint8_t* bssid;
                     int32_t channel;
                     int i;
-                    print(Serial, "\tindex   SSID                                encryption           RSSI        channel MAC\n");
+                    print(*user_stream, "\tindex   SSID                                encryption           RSSI        channel MAC\n");
                     for(i = 0; i != networks; ++i) {
                         bool res = WiFi.getNetworkInfo(i, ssid, encryption, rssi, bssid, channel);
-                        print(Serial, "\t{}{:2}\t{:32}\t{:15}\t{:4} dBm\t  {:2}  \t{:02X}:{:02X}:{:02X}:{:02X}:{:02X}:{:02X}\n", res ? ' ' : '!',
+                        print(*user_stream, "\t{}{:2}\t{:32}\t{:15}\t{:4} dBm\t  {:2}  \t{:02X}:{:02X}:{:02X}:{:02X}:{:02X}:{:02X}\n", res ? ' ' : '!',
                             i, ssid.c_str(), enctype2str(encryption), rssi, channel, bssid[0], bssid[1], bssid[2], bssid[3], bssid[4], bssid[5]);
                     }
-                    std::string cmd = read_string(Serial, "Type C for disable Wi-Fi, N for enter another SSID or selected Wi-Fi index and press enter: ");
+                    std::string cmd = read_string(*user_stream, "Type C for disable Wi-Fi, N for enter another SSID or selected Wi-Fi index and press enter: ");
                     if (cmd.empty()) {
-                        print(Serial, "No input\n");
+                        print(*user_stream, "No input\n");
                     } else if (cmd == "C") {
                         err = nvs_erase_key(nvsHandle, NVS_KEY_WIFI_SSID);
                         if (err == ESP_OK)
-                            print(Serial, "\nWi-Fi disabled\n");
+                            print(*user_stream, "\nWi-Fi disabled\n");
                         else
-                            print(Serial, "\nDisabling Wi-Fi failed, because {}\n", esp_err_to_name(err));
+                            print(*user_stream, "\nDisabling Wi-Fi failed, because {}\n", esp_err_to_name(err));
                     } else if (cmd == "N") {
-                        wifi_ssid = read_string(Serial, "Enter SSID and press enter: ");
-                        wifi_pswd = read_string(Serial, "Enter PSWD and press enter: ");
-                        wifi_save_and_connect(nvsHandle, wifi_ssid, wifi_pswd);
+                        wifi_ssid = read_string(*user_stream, "Enter SSID and press enter: ");
+                        wifi_pswd = read_string(*user_stream, "Enter PSWD and press enter: ");
+                        wifi_save_and_connect(nvsHandle, wifi_ssid, wifi_pswd, *user_stream);
                     } else if (isInt(cmd, &i)) {
                         bool res = WiFi.getNetworkInfo(i, ssid, encryption, rssi, bssid, channel);
                         if (!res) {
-                            print(Serial, "Network {} {} is somehow invalid\n", i, ssid.c_str());
+                            print(*user_stream, "Network {} {} is somehow invalid\n", i, ssid.c_str());
                         } else { 
                             wifi_ssid = ssid.c_str();
-                            print(Serial, "Selected network {}: {}\n", i, wifi_ssid);
-                            wifi_pswd = read_string(Serial, "Enter PSWD and press enter: ");
-                            wifi_save_and_connect(nvsHandle, wifi_ssid, wifi_pswd);
+                            print(*user_stream, "Selected network {}: {}\n", i, wifi_ssid);
+                            wifi_pswd = read_string(*user_stream, "Enter PSWD and press enter: ");
+                            wifi_save_and_connect(nvsHandle, wifi_ssid, wifi_pswd, *user_stream);
                         }
                     } else {
-                        print(Serial, "Unknown command {}\n", cmd);
+                        print(*user_stream, "Unknown command {}\n", cmd);
                     }
                     WiFi.scanDelete();
                 }
                 break;
             case 'N':
-                my_name = read_string(Serial, "Enter new device name: ", 0, 64);
+                my_name = read_string(*user_stream, "Enter new device name: ", 0, 64);
                 if (wifi_status == WL_CONNECTED) {
                     if (!MDNS.begin(my_name.c_str())) {
-                        print(Serial, "Error setting up MDNS responder!");
+                        print(*user_stream, "Error setting up MDNS responder!");
                     }
                 }
                 err = nvs_set_str(nvsHandle, NVS_KEY_NAME, my_name.c_str());
                 if (err != ESP_OK) {
-                    print(Serial, "\nSaving name failed, because {}\n", esp_err_to_name(err));
+                    print(*user_stream, "\nSaving name failed, because {}\n", esp_err_to_name(err));
                     break;
                 }
                 err = nvs_commit(nvsHandle);
                 if (err != ESP_OK) {
-                    print(Serial, "\nNVS commit failed\n");
+                    print(*user_stream, "\nNVS commit failed\n");
                 }
                 break;
             }
