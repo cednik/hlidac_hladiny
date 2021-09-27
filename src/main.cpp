@@ -504,6 +504,15 @@ void setup() {
 
     int16_t raw_level = 0;
     int16_t level = 0;
+    raw_level = utsMeas(uts);
+    level = (raw_level == -1) ? LEVEL_ERROR : (level_zero - raw_level);
+    print(Serial, "Level {} mm: ", level);
+    if (level > 0) {
+        digitalWrite(PIN_RELAY, 0);
+        print(Serial, "switching on\n");
+    } else {
+        print(Serial, "keep off\n");
+    }
 
     meas.force();
     
@@ -527,6 +536,7 @@ void setup() {
             meas.ack();
             raw_level = utsMeas(uts);
             level = (raw_level == -1) ? LEVEL_ERROR : (level_zero - raw_level);
+
             const float temp = thermometer.readTemperature();
             const float humid = thermometer.readHumidity();
             
@@ -534,6 +544,11 @@ void setup() {
             print(display, "d: {:4} mm; t: {:4.1f} °C; h: {:2.0f}\n", level, temp, humid);
             print(*user_stream, "d: {:4} mm; t: {:4.1f} °C; h: {:2.0f}\n", level, temp, humid);
             display.display();
+
+            if (level < 0) {
+                digitalWrite(PIN_RELAY, 0);
+                print(Serial, "LOW LEVEL, swithing off!\n");
+            }
         }
         wl_status_t wifi_status = WiFi.status();
         if (wifi_status != wifi_last_status) {
