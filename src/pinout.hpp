@@ -1,11 +1,11 @@
 #pragma once
 
 /* pinout:
- 0 SD_DATA1 | BOOT/U
+ 0 RTC_WAKEUP | BOOT/U
  1 TXD0
  2 SD_DATA0 | BOOT/D
  3 RXD0
- 4 RTC_WAKEUP
+ 4 SD_DATA1
  5 ILED     | SDIO/U
  6 FLASH
  7 FLASH
@@ -53,12 +53,12 @@
 
 #define PIN_RELAY      22
 
-#define PIN_RTC_WAKEUP  4
+#define PIN_RTC_WAKEUP  0
 
 #define PIN_PWR_CHECK  32
 
 #define PIN_SD_D0       2
-#define PIN_SD_D1       0
+#define PIN_SD_D1       4
 #define PIN_SD_D2      12
 #define PIN_SD_D3      13
 #define PIN_SD_CMD     15

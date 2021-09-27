@@ -1,6 +1,8 @@
 #include <Arduino.h>
 #include <WiFi.h>
 #include <ESPmDNS.h>
+#include "FS.h"
+#include "SD_MMC.h"
 
 #include "nvs_flash.h"
 #include "nvs.h"
@@ -271,6 +273,37 @@ bool isInt16(const std::string& str, int16_t* pRes = nullptr) {
     return res;
 }
 
+template <class Stream>
+void listDir(Stream& stream, fs::FS &fs, const char * dirname, uint8_t levels = 0){
+    print(stream, "Listing directory: {}\n", dirname);
+
+    File root = fs.open(dirname);
+    if (!root) {
+        print(stream, "Failed to open directory\n");
+        return;
+    }
+    if (!root.isDirectory()) {
+        print(stream, "Not a directory\n");
+        return;
+    }
+
+    File file = root.openNextFile();
+    while (file) {
+        if(file.isDirectory()) {
+            print(stream, "  DIR : {}\n", file.name());
+            if(levels) {
+                std::string path = dirname;
+                path += '/';
+                path += file.name();
+                listDir(stream, fs, path.c_str(), levels -1);
+            }
+        } else {
+            print(stream, "  FILE: {}  SIZE: {}\n", file.name(), file.size());
+        }
+        file = root.openNextFile();
+    }
+}
+
 void setup() {
     Serial.begin(115200);
     print(Serial, "\nHlidac hladiny\n\t{} {}\n", __DATE__, __TIME__);
@@ -320,6 +353,7 @@ void setup() {
     pinMode(PIN_TRIG, OUTPUT);
     pinMode(PIN_ECHO, INPUT_PULLUP);
     pinMode(PIN_ILED, OUTPUT);
+    pinMode(PIN_RTC_WAKEUP, INPUT_PULLUP);
 
     HardwareSerial& uts = Serial1;
     uts.begin(9600, SERIAL_8N1, PIN_ECHO, PIN_TRIG);
@@ -412,6 +446,51 @@ void setup() {
     }
 
     BasicOTA OTA;
+
+    bool sd_card_present = false;
+    if (digitalRead(PIN_SD_PRESENT) == LOW) {
+        if (digitalRead(PIN_SD_LOCK) == HIGH) {
+            print(Serial, "SD card LOCKED!\n");
+        } else {
+            pinMode(PIN_SD_D0, INPUT_PULLUP);
+            pinMode(PIN_SD_D1, INPUT_PULLUP);
+            pinMode(PIN_SD_D2, INPUT_PULLUP);
+            pinMode(PIN_SD_D3, INPUT_PULLUP);
+            pinMode(PIN_SD_CMD, INPUT_PULLUP);
+            pinMode(PIN_SD_CLK, INPUT_PULLUP);
+            wait(msec(10));
+            if(!SD_MMC.begin()) {
+                print(Serial, "Card Mount Failed\n");
+            }
+            uint8_t cardType = SD_MMC.cardType();
+            sd_card_present = true;
+            switch (cardType) {
+            case CARD_NONE:
+                print(Serial, "No SD_MMC card attached\n");
+                sd_card_present = false;
+                break;
+            case CARD_MMC:
+                print(Serial, "MMC card\n");
+                break;
+            case CARD_SD:
+                print(Serial, "SD card\n");
+                break;
+            case CARD_SDHC:
+                print(Serial, "SDHC card\n");
+                break;
+            default:
+                print(Serial, "Unknown card {}\n", cardType);
+                break;
+            }
+            if (sd_card_present) {
+                uint64_t cardSize = SD_MMC.cardSize() / (1024 * 1024);
+                print(Serial, "Card Size: {} MB\n", cardSize);
+                listDir(Serial, SD_MMC, "/");
+            }
+        }
+    } else {
+        print(Serial, "No SD card inserted\n");
+    }
 
     timeout blink(msec(500));
     timeout meas(msec(1000));
@@ -611,6 +690,8 @@ void setup() {
                 }
                 break;
             case 'f':
+                rtc.writeSqwPinMode(DS1307_ON);
+                print(*user_stream, "RTC set\n");
                 break;
             }
         }
