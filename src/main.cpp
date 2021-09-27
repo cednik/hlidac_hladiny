@@ -27,11 +27,14 @@
 
 using fmt::print;
 
-#define NVS_KEY_WIFI_SSID "WiFi_SSID"
-#define NVS_KEY_WIFI_PSWD "WiFi_PSWD"
-#define NVS_KEY_NAME "NAME"
+#define NVS_KEY_WIFI_SSID  "WiFi_SSID"
+#define NVS_KEY_WIFI_PSWD  "WiFi_PSWD"
+#define NVS_KEY_NAME       "NAME"
+#define NVS_KEY_LEVEL_ZERO "LEVEL_ZERO"
 
 #define USER_SERVER_PORT 54321
+
+#define LEVEL_ERROR -32768
 
 #define I2C_FREQUENCY 100000 // Hz
 
@@ -259,6 +262,13 @@ bool isInt(const std::string& str, int* pRes = nullptr) {
         *pRes = res;
     return true;
 }
+bool isInt16(const std::string& str, int16_t* pRes = nullptr) {
+    int n;
+    bool res = isInt(str, &n);
+    if (res && pRes)
+        *pRes = int16_t(n);
+    return res;
+}
 
 void setup() {
     Serial.begin(115200);
@@ -304,28 +314,15 @@ void setup() {
     }
 
     pinMode(PIN_LED, OUTPUT);
-
     pinMode(PIN_BUZZER, OUTPUT);
-    print("Buzzer on\n");
-    digitalWrite(PIN_BUZZER, HIGH);
-    wait(msec(1000));
-    digitalWrite(PIN_BUZZER, LOW);
-    print("Buzzer off\n");
-    //wait(msec(1000));
-
     pinMode(PIN_RELAY, OUTPUT);
-    /*print("Relay on\n");
-    digitalWrite(PIN_RELAY, HIGH);
-    wait(msec(1000));
-    digitalWrite(PIN_RELAY, LOW);
-    print("Relay off\n");*/
-
     pinMode(PIN_TRIG, OUTPUT);
     pinMode(PIN_ECHO, INPUT_PULLUP);
+    pinMode(PIN_ILED, OUTPUT);
+
     HardwareSerial& uts = Serial1;
     uts.begin(9600, SERIAL_8N1, PIN_ECHO, PIN_TRIG);
 
-    pinMode(PIN_ILED, OUTPUT);
     for (uint8_t i = 0; i != ILEDS_COUNT; ++i)
         iLeds[i] = Rgb(16, 16, 16);
     iLeds.show();
@@ -398,6 +395,21 @@ void setup() {
         break;
     }
 
+    int16_t level_zero = 4300;
+    err = nvs_get_i16(nvsHandle, NVS_KEY_LEVEL_ZERO, &level_zero);
+    switch (err) {
+    case ESP_OK:
+        print(Serial, "Zero level: {} mm.\n", level_zero);
+        break;
+    case ESP_ERR_NVS_NOT_FOUND:
+        print(Serial, "No Zero level set, fallback to {} mm.\n", level_zero);
+        break;
+    default:
+        print(Serial, "Error {} {} reading Wi-Fi SSID!\n", err, esp_err_to_name(err));
+        print(Serial, "Fallback to {} mm.\n", level_zero);
+        break;
+    }
+
     BasicOTA OTA;
 
     timeout blink(msec(500));
@@ -409,6 +421,11 @@ void setup() {
     WiFiClient user_client;
     bool user_client_connected = false;
     Stream* user_stream = &Serial;
+
+    int16_t raw_level = 0;
+    int16_t level = 0;
+
+    meas.force();
     
     for(;;) {
         if (blink) {
@@ -428,13 +445,14 @@ void setup() {
         }
         if (meas) {
             meas.ack();
-            const int16_t mm = utsMeas(uts);
+            raw_level = utsMeas(uts);
+            level = (raw_level == -1) ? LEVEL_ERROR : (level_zero - raw_level);
             const float temp = thermometer.readTemperature();
             const float humid = thermometer.readHumidity();
             
             display.setCursor(0, 0);
-            print(display, "d: {:4} mm; t: {:4.1f} °C; h: {:2.0f}\n", mm, temp, humid);
-            print(*user_stream, "d: {:4} mm; t: {:4.1f} °C; h: {:2.0f}\n", mm, temp, humid);
+            print(display, "d: {:4} mm; t: {:4.1f} °C; h: {:2.0f}\n", level, temp, humid);
+            print(*user_stream, "d: {:4} mm; t: {:4.1f} °C; h: {:2.0f}\n", level, temp, humid);
             display.display();
         }
         wl_status_t wifi_status = WiFi.status();
@@ -487,6 +505,14 @@ void setup() {
             case '\n':
             case '\r':
                 user_stream->write('\n');
+                break;
+            case '1':
+                digitalWrite(PIN_RELAY, 1);
+                print(*user_stream, "ON\n");
+                break;
+            case '0':
+                digitalWrite(PIN_RELAY, 1);
+                print(*user_stream, "OFF\n");
                 break;
             case 'T':
                 if (!rtcConnected) {
@@ -567,6 +593,23 @@ void setup() {
                 if (err != ESP_OK) {
                     print(*user_stream, "\nNVS commit failed\n");
                 }
+                break;
+            case 'Z':
+                if (isInt16(read_string(*user_stream, "Enter new zero level: "), &level_zero)) {
+                    err = nvs_set_i16(nvsHandle, NVS_KEY_LEVEL_ZERO, level_zero);
+                    if (err != ESP_OK) {
+                        print(*user_stream, "\nSaving level zero failed, because {}\n", esp_err_to_name(err));
+                        break;
+                    }
+                    err = nvs_commit(nvsHandle);
+                    if (err != ESP_OK) {
+                        print(*user_stream, "\nNVS commit failed\n");
+                    }
+                } else {
+                    print(*user_stream, "Invalid input\n");
+                }
+                break;
+            case 'f':
                 break;
             }
         }
