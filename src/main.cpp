@@ -82,6 +82,7 @@ int16_t utsMeas(HardwareSerial& port) {
 
 inline static void checkReset() {
     esp_reset_reason_t resetReason = esp_reset_reason();
+    //print("0x{:02X}", uint8_t(resetReason));
     switch (resetReason) {
     case ESP_RST_UNKNOWN:
         print("\tUnknown reset - strange\n");
@@ -108,8 +109,8 @@ inline static void checkReset() {
         vTaskSuspend(nullptr);
         break;
     case ESP_RST_WDT:
-        print("\tReset due to some watchdog - stop program\n");
-        vTaskSuspend(nullptr);
+        print("\tReset due to RTC watchdog - triing again\n");
+        //vTaskSuspend(nullptr);
         break;
     case ESP_RST_DEEPSLEEP:
         print("\tWaked from deep sleep\n");
