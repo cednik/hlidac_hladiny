@@ -591,7 +591,7 @@ void setup() {
                 print(*user_stream, "ON\n");
                 break;
             case '0':
-                digitalWrite(PIN_RELAY, 1);
+                digitalWrite(PIN_RELAY, 0);
                 print(*user_stream, "OFF\n");
                 break;
             case 'T':
