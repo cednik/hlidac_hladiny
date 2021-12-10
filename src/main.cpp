@@ -347,6 +347,9 @@ void setup() {
         display.setCursor(0, 0);
     }
 
+    HardwareSerial& uts = Serial1;
+    uts.begin(9600, SERIAL_8N1, PIN_ECHO, PIN_TRIG);
+
     pinMode(PIN_LED, OUTPUT);
     pinMode(PIN_BUZZER, OUTPUT);
     pinMode(PIN_RELAY, OUTPUT);
@@ -354,9 +357,6 @@ void setup() {
     pinMode(PIN_ECHO, INPUT_PULLUP);
     pinMode(PIN_ILED, OUTPUT);
     pinMode(PIN_RTC_WAKEUP, INPUT_PULLUP);
-
-    HardwareSerial& uts = Serial1;
-    uts.begin(9600, SERIAL_8N1, PIN_ECHO, PIN_TRIG);
 
     for (uint8_t i = 0; i != ILEDS_COUNT; ++i)
         iLeds[i] = Rgb(16, 16, 16);
@@ -505,7 +505,7 @@ void setup() {
     int16_t raw_level = 0;
     int16_t level = 0;
     raw_level = utsMeas(uts);
-    level = (raw_level == -1) ? LEVEL_ERROR : (level_zero - raw_level);
+    level = (raw_level < 0) ? LEVEL_ERROR : (level_zero - raw_level);
     print(Serial, "Level {} mm: ", level);
     if (level > 0) {
         digitalWrite(PIN_RELAY, 0);
@@ -535,7 +535,8 @@ void setup() {
         if (meas) {
             meas.ack();
             raw_level = utsMeas(uts);
-            level = (raw_level == -1) ? LEVEL_ERROR : (level_zero - raw_level);
+            level = (raw_level < 0) ? LEVEL_ERROR : (level_zero - raw_level);
+            //level = raw_level;
 
             const float temp = thermometer.readTemperature();
             const float humid = thermometer.readHumidity();
@@ -545,9 +546,9 @@ void setup() {
             print(*user_stream, "d: {:4} mm; t: {:4.1f} °C; h: {:2.0f}\n", level, temp, humid);
             display.display();
 
-            if (level < 0) {
+            if (level < 0 && digitalRead(PIN_RELAY) == HIGH) {
                 digitalWrite(PIN_RELAY, 0);
-                print(Serial, "LOW LEVEL, swithing off!\n");
+                print(*user_stream, "LOW LEVEL, swithing off!\n");
             }
         }
         wl_status_t wifi_status = WiFi.status();
