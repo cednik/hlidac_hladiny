@@ -1,3 +1,0 @@
-[submodule "lib/BasicOTA-ESP32-library"]
-	path = lib/BasicOTA-ESP32-library
-	url = https://github.com/JakubAndrysek/BasicOTA-ESP32-library.git
