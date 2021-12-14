@@ -1,0 +1,6 @@
+dependencies:
+  # Required IDF version
+  idf: "4.4"
+
+  # Arduino framework
+  arduino-esp32: "2.0.1"
