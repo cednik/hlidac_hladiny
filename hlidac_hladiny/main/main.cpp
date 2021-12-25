@@ -6,7 +6,7 @@ extern "C" void app_main()
     Serial.begin(115200);
     Serial.print("\nHlidac hladiny\n");
     for (;;yield()) {
-        Serial.print("test\n");
+        Serial.print("pokus dnes\n");
         delay(1000);
     }
 }

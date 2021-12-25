@@ -1,0 +1,3 @@
+[submodule "hlidac_hladiny/components/arduino"]
+	path = hlidac_hladiny/components/arduino
+	url = https://github.com/espressif/arduino-esp32.git
