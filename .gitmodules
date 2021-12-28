@@ -19,3 +19,6 @@
 [submodule "hlidac_hladiny/components/DHT/Sensor"]
 	path = hlidac_hladiny/components/DHT/Sensor
 	url = https://github.com/adafruit/Adafruit_Sensor.git
+[submodule "hlidac_hladiny/components/rtc/RTClib"]
+	path = hlidac_hladiny/components/rtc/RTClib
+	url = https://github.com/adafruit/RTClib.git
