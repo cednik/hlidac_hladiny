@@ -13,3 +13,9 @@
 [submodule "hlidac_hladiny/components/display/Adafruit_SSD1306"]
 	path = hlidac_hladiny/components/display/Adafruit_SSD1306
 	url = https://github.com/adafruit/Adafruit_SSD1306.git
+[submodule "hlidac_hladiny/components/DHT/DHT"]
+	path = hlidac_hladiny/components/DHT/DHT
+	url = https://github.com/adafruit/DHT-sensor-library.git
+[submodule "hlidac_hladiny/components/DHT/Sensor"]
+	path = hlidac_hladiny/components/DHT/Sensor
+	url = https://github.com/adafruit/Adafruit_Sensor.git
