@@ -10,7 +10,7 @@ extern "C" void app_main()
     //Serial.print("\nHlidac hladiny\n");
     fmt::print("\nHlidac hladiny\n");
     for (;;yield()) {
-        Serial.print("pokus dnes\n");
+        Serial.print("pokus\n");
         delay(1000);
     }
 }
