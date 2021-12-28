@@ -4,3 +4,12 @@
 [submodule "components/fmt"]
 	path = components/fmt
 	url = https://github.com/fmtlib/fmt.git
+[submodule "hlidac_hladiny/components/display/Adafruit-GFX-Library"]
+	path = hlidac_hladiny/components/display/Adafruit-GFX-Library
+	url = https://github.com/adafruit/Adafruit-GFX-Library.git
+[submodule "hlidac_hladiny/components/Adafruit_BusIO/Adafruit_BusIO"]
+	path = hlidac_hladiny/components/Adafruit_BusIO/Adafruit_BusIO
+	url = https://github.com/adafruit/Adafruit_BusIO.git
+[submodule "hlidac_hladiny/components/display/Adafruit_SSD1306"]
+	path = hlidac_hladiny/components/display/Adafruit_SSD1306
+	url = https://github.com/adafruit/Adafruit_SSD1306.git
