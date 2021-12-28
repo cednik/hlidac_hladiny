@@ -7,8 +7,7 @@ extern "C" void app_main()
 {
     initArduino();
     Serial.begin(115200);
-    //Serial.print("\nHlidac hladiny\n");
-    fmt::print("\nHlidac hladiny\n");
+    fmt::print("\nHlidac hladiny\n\t{} {}\n", __DATE__, __TIME__);
     for (;;yield()) {
         Serial.print("pokus\n");
         delay(1000);
