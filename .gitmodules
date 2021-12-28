@@ -22,3 +22,6 @@
 [submodule "hlidac_hladiny/components/rtc/RTClib"]
 	path = hlidac_hladiny/components/rtc/RTClib
 	url = https://github.com/adafruit/RTClib.git
+[submodule "hlidac_hladiny/components/SmartLeds/SmartLeds"]
+	path = hlidac_hladiny/components/SmartLeds/SmartLeds
+	url = https://github.com/RoboticsBrno/SmartLeds.git
