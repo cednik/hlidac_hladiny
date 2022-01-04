@@ -1,5 +1,3 @@
-#define Binary_h // Content of this Arduino file interfere with fmt
-
 #include <Arduino.h>
 #include <fmt/core.h>
 
@@ -11,6 +9,9 @@ using fmt::print;
 #include "DHT.hpp"
 #include "rtc.hpp"
 #include "iLeds.hpp"
+#include <uart.hpp>
+
+Uart serial1 { UART_NUM_1 };
 
 extern "C" void app_main()
 {
@@ -23,20 +24,17 @@ extern "C" void app_main()
     Display::init();
     thermometer.begin();
     RTC::init();
-    int led = 0;
-    for (;;yield()) {
-        const float temp = thermometer.readTemperature();
-        const float humid = thermometer.readHumidity();
-        print("l: {}; t: {:4.1f} °C; h: {:2.0f}\n", led, temp, humid);
-        
-        for(int i = 0; i != led; ++i)
-            iLeds[i] = Rgb(1, 1, 1);
-        for(int i = led; i != ILEDS_COUNT; ++i)
-            iLeds[i] = Rgb(0, 0, 0);
-        if (led++ == ILEDS_COUNT)
-            led = 0;
-        iLeds.show();
 
-        delay(1000);
+    serial1.begin(115200, SERIAL_8N1, 22, 23);
+
+    for (;;taskYIELD()) {
+        Uart::process(&serial1);
+        while (serial1.available()) {
+            char c = serial1.read();
+            print("received {}\n", c);
+            serial1.write(c);
+        }
+        //print("tick\n");
+        vTaskDelay(1);
     }
 }

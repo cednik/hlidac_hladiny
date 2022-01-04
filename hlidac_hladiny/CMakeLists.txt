@@ -2,6 +2,8 @@
 # CMakeLists in this exact order for cmake to work correctly
 cmake_minimum_required(VERSION 3.5)
 
+add_definitions(-DBinary_h) # Content of Arduino file Binary.h interfere with fmt
+
 set(EXTRA_COMPONENT_DIRS "../components")
 
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
