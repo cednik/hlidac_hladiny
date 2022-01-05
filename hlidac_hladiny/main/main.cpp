@@ -25,10 +25,12 @@ extern "C" void app_main()
     thermometer.begin();
     RTC::init();
 
-    serial1.begin(115200, SERIAL_8N1, 22, 23);
+    serial1
+        .pins(23, 22)
+        .config(115200, SERIAL_8N1)
+        .open();
 
     for (;;taskYIELD()) {
-        Uart::process(&serial1);
         while (serial1.available()) {
             char c = serial1.read();
             print("received {}\n", c);

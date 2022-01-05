@@ -8,37 +8,120 @@
 class Uart: public Stream
 {
     typedef std::recursive_mutex mutex_t;
+    typedef int baudrate_t;
+    struct Settings {
+        uart_config_t config = {
+            .baud_rate = 115200,
+            .data_bits = UART_DATA_8_BITS,
+            .parity    = UART_PARITY_DISABLE,
+            .stop_bits = UART_STOP_BITS_1,
+            .flow_ctrl = UART_HW_FLOWCTRL_DISABLE,
+            .rx_flow_ctrl_thresh = UART_FIFO_LEN-1,
+            .source_clk = UART_SCLK_APB
+        };
+        uart_sw_flowctrl_t sw_flowctrl = {
+            .xon_char  = 0x11,
+            .xoff_char = 0x13,
+            .xon_thrd  = 32,
+            .xoff_thrd = 96
+        };
+        bool sw_flowctrl_en = false;
+        uart_mode_t mode = UART_MODE_UART;
+        uart_signal_inv_t signal_inv = UART_SIGNAL_INV_DISABLE;
+        int pin_txd = UART_PIN_NO_CHANGE;
+        int pin_rxd = UART_PIN_NO_CHANGE;
+        int pin_rts = UART_PIN_NO_CHANGE;
+        int pin_cts = UART_PIN_NO_CHANGE;
+        uint16_t tx_idle = 0;
+        TickType_t tx_timeout = 0;
+        TickType_t rx_timeout = 0;
+        uint8_t rx_timeout_event = 0;
+        int rx_full_threshold = 96;
+        int tx_empty_threshold = 32;
+        int wakeup_threshold = 1;
+        int rx_buffer_size = 128;
+        int tx_buffer_size = 0;
+        int queue_size = 32;
+        uint32_t stack_size = 2048;
+        UBaseType_t task_priority = configMAX_PRIORITIES / 2;
+        char name[configMAX_TASK_NAME_LEN];
+    };
     Uart() = delete;
     Uart(Uart&) = delete;
 public:
     Uart(const uart_port_t uart_num);
     virtual ~Uart();
-    void begin(
-        int baud = 115200,
-        uint32_t config = SERIAL_8N1,
-        int pin_rx = UART_PIN_NO_CHANGE,
-        int pin_tx = UART_PIN_NO_CHANGE,
-        size_t rx_buf = 128,
-        size_t tx_buf = 0,
-        size_t queue_size = 0 );
+// Settings
+    Uart& config(uint32_t cfg);
+    Uart& config(baudrate_t baud, uint32_t cfg);
+    Uart& baudrate(baudrate_t baud);
+    Uart& word_length(uart_word_length_t length);
+    Uart& parity(uart_parity_t par);
+    Uart& stopbits(uart_stop_bits_t stop_bits);
+    Uart& hw_flow_control(uart_hw_flowcontrol_t mode, uint8_t rx_threshold);
+    Uart& clock_source(uart_sclk_t source_clk);
+    Uart& sw_flow_control(bool en = true);
+    Uart& sw_flow_control(uart_sw_flowctrl_t config);
+    Uart& sw_flow_control(uint8_t xon_char, uint8_t xoff_char, uint8_t xon_thrd, uint8_t xoff_thrd);
+    Uart& sw_flow_control_symbols(uint8_t xon_char, uint8_t xoff_char);
+    Uart& sw_flow_control_thresholds(uint8_t xon_thrd, uint8_t xoff_thrd);
+    Uart& mode(uart_mode_t _mode);
+    Uart& pins(int pin_txd, int pin_rxd, uart_signal_inv_t inv = UART_SIGNAL_INV_DISABLE);
+    Uart& pins(int pin_txd, int pin_rxd, int pin_rts, int pin_cts, uart_signal_inv_t inv = UART_SIGNAL_INV_DISABLE);
+    Uart& pin_txd(int pin, bool inv = false);
+    Uart& pin_rxd(int pin, bool inv = false);
+    Uart& pin_rts(int pin, bool inv = false);
+    Uart& pin_cts(int pin, bool inv = false);
+    Uart& tx_idle(uint16_t idle_num);
+    Uart& tx_timeout(TickType_t timeout);
+    Uart& rx_timeout(TickType_t timeout);
+    Uart& rx_timeout_event(uint8_t timeout);
+    Uart& rx_full_threshold(int threshold);
+    Uart& tx_empty_threshold(int threshold);
+    Uart& wakeup_threshold(int threshold);
+    Uart& rx_buffer_size(int size);
+    Uart& tx_buffer_size(int size);
+    Uart& queue_size(int size);
+    Uart& stack_size(uint32_t size);
+    Uart& task_priority(UBaseType_t priority);
+    Uart& name(const char* _name);
+
+// Opening
+    bool open();
+    void close();
+
+    bool is_open();
+    bool isOpen();
+
+    void begin();
+    //void begin(unsigned long baud, uint32_t config=SERIAL_8N1, int8_t rxPin=-1, int8_t txPin=-1, bool invert=false, unsigned long timeout_ms = 20000UL, uint8_t rxfifo_full_thrhd = 112);
     void end();
+
 // Print
     size_t write(uint8_t);
     size_t write(const uint8_t *buffer, size_t size);
     int availableForWrite();
+    bool wait(); // Return true if there is nothing to send i.e. everything already sent. Return false on timeout.
+    bool wait(TickType_t timeout);
+
 // Stream
     int available();
     int read();
     size_t read(uint8_t *buffer, size_t size);
     int peek();
     void flush();
+
 private:
     const uart_port_t m_uart_num;
-    QueueHandle_t m_queue;
+    Settings m_settings;
     mutex_t m_mutex;
+    QueueHandle_t m_queue;
+    TaskHandle_t m_task;
     bool m_has_peek;
     uint8_t m_peek_byte;
-    TickType_t m_timeout;
-public:
+
+    bool _apply();
+    void _pin_config(int inv, int mask);
+
     static void process(void* uart_v);
 };
