@@ -5,6 +5,8 @@
 
 #include <mutex>
 
+extern "C" int uart_ll_min_wakeup_thresh(void); // See uart_helper.c
+
 class Uart: public Stream
 {
     typedef std::recursive_mutex mutex_t;
@@ -28,18 +30,18 @@ class Uart: public Stream
         bool sw_flowctrl_en = false;
         uart_mode_t mode = UART_MODE_UART;
         uart_signal_inv_t signal_inv = UART_SIGNAL_INV_DISABLE;
-        int pin_txd = UART_PIN_NO_CHANGE;
-        int pin_rxd = UART_PIN_NO_CHANGE;
-        int pin_rts = UART_PIN_NO_CHANGE;
-        int pin_cts = UART_PIN_NO_CHANGE;
+        int8_t pin_txd = UART_PIN_NO_CHANGE;
+        int8_t pin_rxd = UART_PIN_NO_CHANGE;
+        int8_t pin_rts = UART_PIN_NO_CHANGE;
+        int8_t pin_cts = UART_PIN_NO_CHANGE;
         uint16_t tx_idle = 0;
         TickType_t tx_timeout = 0;
         TickType_t rx_timeout = 0;
-        uint8_t rx_timeout_event = 0;
-        int rx_full_threshold = 96;
-        int tx_empty_threshold = 32;
-        int wakeup_threshold = 1;
-        int rx_buffer_size = 128;
+        uint8_t rx_timeout_event = 10;   // default value as defined in uart.c
+        uint8_t rx_full_threshold = 120; // default value as defined in uart.c
+        uint8_t tx_empty_threshold = 10; // default value as defined in uart.c
+        int wakeup_threshold = uart_ll_min_wakeup_thresh() + 1;
+        int rx_buffer_size = 1024;
         int tx_buffer_size = 0;
         int queue_size = 32;
         uint32_t stack_size = 2048;
@@ -66,18 +68,18 @@ public:
     Uart& sw_flow_control_symbols(uint8_t xon_char, uint8_t xoff_char);
     Uart& sw_flow_control_thresholds(uint8_t xon_thrd, uint8_t xoff_thrd);
     Uart& mode(uart_mode_t _mode);
-    Uart& pins(int pin_txd, int pin_rxd, uart_signal_inv_t inv = UART_SIGNAL_INV_DISABLE);
-    Uart& pins(int pin_txd, int pin_rxd, int pin_rts, int pin_cts, uart_signal_inv_t inv = UART_SIGNAL_INV_DISABLE);
-    Uart& pin_txd(int pin, bool inv = false);
-    Uart& pin_rxd(int pin, bool inv = false);
-    Uart& pin_rts(int pin, bool inv = false);
-    Uart& pin_cts(int pin, bool inv = false);
+    Uart& pins(int8_t pin_txd, int8_t pin_rxd, uart_signal_inv_t inv = UART_SIGNAL_INV_DISABLE);
+    Uart& pins(int8_t pin_txd, int8_t pin_rxd, int8_t pin_rts, int8_t pin_cts, uart_signal_inv_t inv = UART_SIGNAL_INV_DISABLE);
+    Uart& pin_txd(int8_t pin, bool inv = false);
+    Uart& pin_rxd(int8_t pin, bool inv = false);
+    Uart& pin_rts(int8_t pin, bool inv = false);
+    Uart& pin_cts(int8_t pin, bool inv = false);
     Uart& tx_idle(uint16_t idle_num);
     Uart& tx_timeout(TickType_t timeout);
     Uart& rx_timeout(TickType_t timeout);
     Uart& rx_timeout_event(uint8_t timeout);
-    Uart& rx_full_threshold(int threshold);
-    Uart& tx_empty_threshold(int threshold);
+    Uart& rx_full_threshold(uint8_t threshold);
+    Uart& tx_empty_threshold(uint8_t threshold);
     Uart& wakeup_threshold(int threshold);
     Uart& rx_buffer_size(int size);
     Uart& tx_buffer_size(int size);

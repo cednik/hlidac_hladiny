@@ -25,6 +25,8 @@ extern "C" void app_main()
     thermometer.begin();
     RTC::init();
 
+    esp_log_level_set("*", ESP_LOG_VERBOSE);
+
     serial1
         .pins(23, 22)
         .config(115200, SERIAL_8N1)
@@ -36,7 +38,8 @@ extern "C" void app_main()
             print("received {}\n", c);
             serial1.write(c);
         }
-        //print("tick\n");
-        vTaskDelay(1);
+        //ESP_LOGD("MAIN", "tick");
+        //vTaskDelay(100 / portTICK_PERIOD_MS);
+        vTaskDelay(10 / portTICK_PERIOD_MS);
     }
 }

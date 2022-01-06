@@ -67,6 +67,11 @@
     "thread": "cpp",
     "typeinfo": "cpp",
     "variant": "cpp",
-    "*.ipp": "cpp"
-  }
+    "*.ipp": "cpp",
+    "xlocmes": "cpp",
+    "uart_ll.h": "c",
+    "xlocale": "cpp",
+    "xiosbase": "cpp"
+  },
+  "idf.portWin": "COM5"
 }

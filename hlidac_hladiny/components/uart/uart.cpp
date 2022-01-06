@@ -2,6 +2,8 @@
 
 #include <esp_err.h>
 #include <esp_log.h>
+#include <soc/soc_caps.h>
+#include <soc/uart_reg.h>
 
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
@@ -21,7 +23,12 @@ Uart::Uart(const uart_port_t uart_num)
       m_task{nullptr},
       m_has_peek{false},
       m_peek_byte{0}
-{}
+{
+    strncpy(m_settings.name, "UART", configMAX_TASK_NAME_LEN-1);
+    if (configMAX_TASK_NAME_LEN > 5)
+        m_settings.name[4] = '0' + m_uart_num;
+    m_settings.name[configMAX_TASK_NAME_LEN-1] = '\0';
+}
 
 Uart::~Uart() {
     close();
@@ -49,8 +56,31 @@ Uart& Uart::config(baudrate_t baud, uint32_t cfg) {
     config(cfg);
     return *this;
 }
+
+#define CHECK_MIN(value, minlim, paramname) \
+    if (value < minlim) { \
+        ESP_LOGE(LOG_TAG, "Unable to set %s %d for %s. Minimum is %d.", paramname, value, m_settings.name, minlim); \
+        value = minlim; \
+    }
+#define CHECK_MAX(value, maxlim, paramname) \
+    if (value > maxlim) { \
+        ESP_LOGE(LOG_TAG, "Unable to set %s %d for %s. Maximum is %d.", paramname, value, m_settings.name, maxlim); \
+        value = maxlim; \
+    }
+#define CHECK_RANGE(value, minlim, maxlim, paramname) \
+    if (value < minlim || value > maxlim) { \
+        ESP_LOGE(LOG_TAG, "Unable to set %s %d for %s. It has to be in range <%d; %d>.", paramname, value, m_settings.name, minlim, maxlim); \
+        value = value < minlim ? minlim : maxlim; \
+    }
+#define CHECK_PIN(pin, pinname, check) \
+    if (pin != UART_PIN_NO_CHANGE && !check(pin)) { \
+        ESP_LOGE(LOG_TAG, "Invalid pin %d as %s of %s. Leaving unchanged.", pin, pinname, m_settings.name); \
+        pin = UART_PIN_NO_CHANGE; \
+    }
+
 Uart& Uart::baudrate(baudrate_t baud) {
     std::lock_guard<mutex_t> lock (m_mutex);
+    CHECK_MAX(baud, SOC_UART_BITRATE_MAX, "baudrate");
     m_settings.config.baud_rate = baud;
     if (_apply())
         ESP_ERROR_CHECK(uart_set_baudrate(m_uart_num, baud));
@@ -80,6 +110,7 @@ Uart& Uart::stopbits(uart_stop_bits_t stop_bits) {
 Uart& Uart::hw_flow_control(uart_hw_flowcontrol_t mode, uint8_t rx_threshold) {
     std::lock_guard<mutex_t> lock (m_mutex);
     m_settings.config.flow_ctrl = mode;
+    CHECK_MAX(rx_threshold, SOC_UART_FIFO_LEN - 1, "HW flow control RX threshold");
     m_settings.config.rx_flow_ctrl_thresh = rx_threshold;
     if (_apply())
         ESP_ERROR_CHECK(uart_set_hw_flow_ctrl(m_uart_num, mode, rx_threshold));
@@ -106,6 +137,8 @@ Uart& Uart::sw_flow_control(uart_sw_flowctrl_t config) {
 Uart& Uart::sw_flow_control(uint8_t xon_char, uint8_t xoff_char, uint8_t xon_thrd, uint8_t xoff_thrd) {
     ESP_LOGE(LOG_TAG, "Settings software flow control symbols is not implemented in supported version of IDF (v4.4) [UART %s].", m_settings.name);
     std::lock_guard<mutex_t> lock (m_mutex);
+    CHECK_MAX(xon_thrd, SOC_UART_FIFO_LEN - 1, "SW flow control XON threshold");
+    CHECK_MAX(xoff_thrd, SOC_UART_FIFO_LEN - 1, "SW flow control XOFF threshold");
     m_settings.sw_flowctrl.xon_char = xon_char;
     m_settings.sw_flowctrl.xoff_char = xoff_char;
     m_settings.sw_flowctrl.xon_thrd = xon_thrd;
@@ -124,6 +157,8 @@ Uart& Uart::sw_flow_control_symbols(uint8_t xon_char, uint8_t xoff_char) {
 }
 Uart& Uart::sw_flow_control_thresholds(uint8_t xon_thrd, uint8_t xoff_thrd) {
     std::lock_guard<mutex_t> lock (m_mutex);
+    CHECK_MAX(xon_thrd, SOC_UART_FIFO_LEN - 1, "SW flow control XON threshold");
+    CHECK_MAX(xoff_thrd, SOC_UART_FIFO_LEN - 1, "SW flow control XOFF threshold");
     m_settings.sw_flowctrl.xon_thrd = xon_thrd;
     m_settings.sw_flowctrl.xoff_thrd = xoff_thrd;
     if (_apply())
@@ -148,8 +183,10 @@ void Uart::_pin_config(int inv, int mask) {
         ESP_ERROR_CHECK(uart_set_line_inverse(m_uart_num, m_settings.signal_inv));
     }
 }
-Uart& Uart::pins(int pin_txd, int pin_rxd, uart_signal_inv_t inv) {
+Uart& Uart::pins(int8_t pin_txd, int8_t pin_rxd, uart_signal_inv_t inv) {
     std::lock_guard<mutex_t> lock (m_mutex);
+    CHECK_PIN(pin_txd, "TXD", GPIO_IS_VALID_OUTPUT_GPIO);
+    CHECK_PIN(pin_rxd, "RXD", GPIO_IS_VALID_GPIO);
     m_settings.pin_txd = pin_txd;
     m_settings.pin_rxd = pin_rxd;
     _pin_config(inv,  UART_SIGNAL_IRDA_TX_INV
@@ -158,12 +195,16 @@ Uart& Uart::pins(int pin_txd, int pin_rxd, uart_signal_inv_t inv) {
                     | UART_SIGNAL_TXD_INV );
     return *this;
 }
-Uart& Uart::pins(int pin_txd, int pin_rxd, int pin_rts, int pin_cts, uart_signal_inv_t inv) {
+Uart& Uart::pins(int8_t pin_txd, int8_t pin_rxd, int8_t pin_rts, int8_t pin_cts, uart_signal_inv_t inv) {
     std::lock_guard<mutex_t> lock (m_mutex);
+    CHECK_PIN(pin_txd, "TXD", GPIO_IS_VALID_OUTPUT_GPIO);
+    CHECK_PIN(pin_rxd, "RXD", GPIO_IS_VALID_GPIO);
+    CHECK_PIN(pin_rts, "RTS", GPIO_IS_VALID_OUTPUT_GPIO);
+    CHECK_PIN(pin_cts, "CTS", GPIO_IS_VALID_GPIO);
     m_settings.pin_txd = pin_txd;
     m_settings.pin_rxd = pin_rxd;
-    m_settings.pin_rxd = pin_rts;
-    m_settings.pin_rxd = pin_cts;
+    m_settings.pin_rts = pin_rts;
+    m_settings.pin_cts = pin_cts;
     _pin_config(inv,  UART_SIGNAL_IRDA_TX_INV
                     | UART_SIGNAL_IRDA_RX_INV
                     | UART_SIGNAL_RXD_INV
@@ -172,29 +213,33 @@ Uart& Uart::pins(int pin_txd, int pin_rxd, int pin_rts, int pin_cts, uart_signal
                     | UART_SIGNAL_CTS_INV );
     return *this;
 }
-Uart& Uart::pin_txd(int pin, bool inv) {
+Uart& Uart::pin_txd(int8_t pin, bool inv) {
     std::lock_guard<mutex_t> lock (m_mutex);
+    CHECK_PIN(pin, "TXD", GPIO_IS_VALID_OUTPUT_GPIO);
     m_settings.pin_txd = pin;
     const int inv_mask = UART_SIGNAL_IRDA_TX_INV | UART_SIGNAL_TXD_INV;
     _pin_config(inv ? inv_mask : 0, inv_mask);
     return *this;
 }
-Uart& Uart::pin_rxd(int pin, bool inv) {
+Uart& Uart::pin_rxd(int8_t pin, bool inv) {
     std::lock_guard<mutex_t> lock (m_mutex);
+    CHECK_PIN(pin, "RXD", GPIO_IS_VALID_GPIO);
     m_settings.pin_rxd = pin;
     const int inv_mask = UART_SIGNAL_IRDA_RX_INV | UART_SIGNAL_RXD_INV;
     _pin_config(inv ? inv_mask : 0, inv_mask);
     return *this;
 }
-Uart& Uart::pin_rts(int pin, bool inv) {
+Uart& Uart::pin_rts(int8_t pin, bool inv) {
     std::lock_guard<mutex_t> lock (m_mutex);
+    CHECK_PIN(pin, "RTS", GPIO_IS_VALID_OUTPUT_GPIO);
     m_settings.pin_rts = pin;
     const int inv_mask = UART_SIGNAL_RTS_INV;
     _pin_config(inv ? inv_mask : 0, inv_mask);
     return *this;
 }
-Uart& Uart::pin_cts(int pin, bool inv) {
+Uart& Uart::pin_cts(int8_t pin, bool inv) {
     std::lock_guard<mutex_t> lock (m_mutex);
+    CHECK_PIN(pin, "CTS", GPIO_IS_VALID_GPIO);
     m_settings.pin_cts = pin;
     const int inv_mask = UART_SIGNAL_CTS_INV;
     _pin_config(inv ? inv_mask : 0, inv_mask);
@@ -202,6 +247,7 @@ Uart& Uart::pin_cts(int pin, bool inv) {
 }
 Uart& Uart::tx_idle(uint16_t idle_num) {
     std::lock_guard<mutex_t> lock (m_mutex);
+    CHECK_MAX(idle_num, UART_TX_IDLE_NUM_V, "TX idle");
     m_settings.tx_idle = idle_num;
     if (_apply())
         ESP_ERROR_CHECK(uart_set_tx_idle_num(m_uart_num, idle_num));
@@ -219,27 +265,31 @@ Uart& Uart::rx_timeout(TickType_t timeout) {
 }
 Uart& Uart::rx_timeout_event(uint8_t timeout) {
     std::lock_guard<mutex_t> lock (m_mutex);
+    // FIX ME: add CHECK_MAX (underlaing driver uses undocumented uart_hal API).
     m_settings.rx_timeout_event = timeout;
     if (_apply())
         ESP_ERROR_CHECK(uart_set_rx_timeout(m_uart_num, timeout));
     return *this;
 }
-Uart& Uart::rx_full_threshold(int threshold) {
+Uart& Uart::rx_full_threshold(uint8_t threshold) {
     std::lock_guard<mutex_t> lock (m_mutex);
+    CHECK_MAX(threshold, UART_RXFIFO_FULL_THRHD_V - 1, "RX FIFO full threshold");
     m_settings.rx_full_threshold = threshold;
     if (_apply())
         ESP_ERROR_CHECK(uart_set_rx_full_threshold(m_uart_num, threshold));
     return *this;
 }
-Uart& Uart::tx_empty_threshold(int threshold) {
+Uart& Uart::tx_empty_threshold(uint8_t threshold) {
     std::lock_guard<mutex_t> lock (m_mutex);
     m_settings.tx_empty_threshold = threshold;
+    CHECK_MAX(threshold, UART_TXFIFO_EMPTY_THRHD_V - 1, "TX FIFO empty threshold");
     if (_apply())
         ESP_ERROR_CHECK(uart_set_tx_empty_threshold(m_uart_num, threshold));
     return *this;
 }
 Uart& Uart::wakeup_threshold(int threshold) {
     std::lock_guard<mutex_t> lock (m_mutex);
+    CHECK_RANGE(threshold, uart_ll_min_wakeup_thresh(), UART_ACTIVE_THRESHOLD_V - 1, "wakeup threshold");
     m_settings.wakeup_threshold = threshold;
     if (_apply())
         ESP_ERROR_CHECK(uart_set_wakeup_threshold(m_uart_num, threshold));
@@ -247,6 +297,7 @@ Uart& Uart::wakeup_threshold(int threshold) {
 }
 Uart& Uart::rx_buffer_size(int size) {
     std::lock_guard<mutex_t> lock (m_mutex);
+    CHECK_MIN(size, SOC_UART_FIFO_LEN + 1, "RX buffer size");
     m_settings.rx_buffer_size = size;
     if (_apply())
         ESP_LOGW(LOG_TAG, "Setting rx_buffer_size on opened UART %s. Please reopen to take effect.", m_settings.name);
@@ -254,6 +305,7 @@ Uart& Uart::rx_buffer_size(int size) {
 }
 Uart& Uart::tx_buffer_size(int size) {
     std::lock_guard<mutex_t> lock (m_mutex);
+    CHECK_MIN(size, SOC_UART_FIFO_LEN + 1, "TX buffer size");
     m_settings.tx_buffer_size = size;
     if (_apply())
         ESP_LOGW(LOG_TAG, "Setting tx_buffer_size on opened UART %s. Please reopen to take effect.", m_settings.name);
@@ -295,9 +347,44 @@ Uart& Uart::name(const char* _name) {
 bool Uart::open() {
     std::lock_guard<mutex_t> lock (m_mutex);
     close();
+
+    /*fmt::print("UART{} settings:\n", m_uart_num);
+    fmt::print("\t{:.<32}{}\n", "baud_rate", m_settings.config.baud_rate);
+    fmt::print("\t{:.<32}{}\n", "data_bits", m_settings.config.data_bits);
+    fmt::print("\t{:.<32}{}\n", "parity", m_settings.config.parity);
+    fmt::print("\t{:.<32}{}\n", "stop_bits", m_settings.config.stop_bits);
+    fmt::print("\t{:.<32}{}\n", "flow_ctrl", m_settings.config.flow_ctrl);
+    fmt::print("\t{:.<32}{}\n", "rx_flow_ctrl_thresh", m_settings.config.rx_flow_ctrl_thresh);
+    fmt::print("\t{:.<32}{}\n", "source_clk", m_settings.config.source_clk);
+    fmt::print("\t{:.<32}{}\n", "xon_char", m_settings.sw_flowctrl.xon_char);
+    fmt::print("\t{:.<32}{}\n", "xoff_char", m_settings.sw_flowctrl.xoff_char);
+    fmt::print("\t{:.<32}{}\n", "xon_thrd", m_settings.sw_flowctrl.xon_thrd);
+    fmt::print("\t{:.<32}{}\n", "xoff_thrd", m_settings.sw_flowctrl.xoff_thrd);
+    fmt::print("\t{:.<32}{}\n", "sw_flowctrl_en", m_settings.sw_flowctrl_en);
+    fmt::print("\t{:.<32}{}\n", "mode", m_settings.mode);
+    fmt::print("\t{:.<32}{}\n", "signal_inv", m_settings.signal_inv);
+    fmt::print("\t{:.<32}{}\n", "pin_txd", m_settings.pin_txd);
+    fmt::print("\t{:.<32}{}\n", "pin_rxd", m_settings.pin_rxd);
+    fmt::print("\t{:.<32}{}\n", "pin_rts", m_settings.pin_rts);
+    fmt::print("\t{:.<32}{}\n", "pin_cts", m_settings.pin_cts);
+    fmt::print("\t{:.<32}{}\n", "tx_idle", m_settings.tx_idle);
+    fmt::print("\t{:.<32}{}\n", "tx_timeout", m_settings.tx_timeout);
+    fmt::print("\t{:.<32}{}\n", "rx_timeout", m_settings.rx_timeout);
+    fmt::print("\t{:.<32}{}\n", "rx_timeout_event", m_settings.rx_timeout_event);
+    fmt::print("\t{:.<32}{}\n", "rx_full_threshold", m_settings.rx_full_threshold);
+    fmt::print("\t{:.<32}{}\n", "tx_empty_threshold", m_settings.tx_empty_threshold);
+    fmt::print("\t{:.<32}{}\n", "wakeup_threshold", m_settings.wakeup_threshold);
+    fmt::print("\t{:.<32}{}\n", "rx_buffer_size", m_settings.rx_buffer_size);
+    fmt::print("\t{:.<32}{}\n", "tx_buffer_size", m_settings.tx_buffer_size);
+    fmt::print("\t{:.<32}{}\n", "queue_size", m_settings.queue_size);
+    fmt::print("\t{:.<32}{}\n", "stack_size", m_settings.stack_size);
+    fmt::print("\t{:.<32}{}\n", "task_priority", m_settings.task_priority);
+    fmt::print("\t{:.<32}{}\n", "name", m_settings.name);*/
+
     ESP_ERROR_CHECK(uart_driver_install(m_uart_num, m_settings.rx_buffer_size, m_settings.tx_buffer_size, m_settings.queue_size, &m_queue, ESP_INTR_FLAG_IRAM));
     ESP_ERROR_CHECK(uart_param_config(m_uart_num, &m_settings.config));
-    _pin_config(m_settings.signal_inv, 0xFFFFFFFF);
+    ESP_ERROR_CHECK(uart_set_pin(m_uart_num, m_settings.pin_txd, m_settings.pin_rxd, m_settings.pin_rts, m_settings.pin_cts));
+    ESP_ERROR_CHECK(uart_set_line_inverse(m_uart_num, m_settings.signal_inv));
     ESP_ERROR_CHECK(uart_set_sw_flow_ctrl(m_uart_num, m_settings.sw_flowctrl_en, m_settings.sw_flowctrl.xon_thrd, m_settings.sw_flowctrl.xoff_thrd));
     ESP_ERROR_CHECK(uart_set_mode(m_uart_num, m_settings.mode));
     ESP_ERROR_CHECK(uart_set_tx_idle_num(m_uart_num, m_settings.tx_idle));
@@ -454,7 +541,11 @@ void Uart::flush() {
 void Uart::process(void* uart_v) {
     Uart& uart = *static_cast<Uart*>(uart_v);
     uart_event_t event;
-    if (xQueueReceive(uart.m_queue, &event, 0)) {
-        fmt::print("Event ID {}, size {}, timeouf flag {}\n", int(event.type), event.size, event.timeout_flag);
+    for (;;) {
+        if (xQueueReceive(uart.m_queue, &event, portMAX_DELAY)) {
+            //fmt::print("Event ID {}, size {}, timeouf flag {}\n", int(event.type), event.size, event.timeout_flag);
+            ESP_LOGD(LOG_TAG, "%s event type %d, size %u, timeouf flag %d", uart.m_settings.name, int(event.type), event.size, int(event.timeout_flag));
+        }
     }
+    vTaskDelete(nullptr);
 }
