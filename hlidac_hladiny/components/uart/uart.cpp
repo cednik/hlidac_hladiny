@@ -21,6 +21,7 @@ Uart::Uart(const uart_port_t uart_num)
       m_mutex{},
       m_queue{nullptr},
       m_task{nullptr},
+      m_rx_transfer_timeout{true},
       m_has_peek{false},
       m_peek_byte{0}
 {
@@ -579,6 +580,10 @@ void Uart::flush() {
     ESP_ERROR_CHECK(uart_flush(m_uart_num));
 }
 
+bool Uart::rx_transfer_timeout() {
+    return m_rx_transfer_timeout;
+}
+
 // static
 void Uart::process(void* uart_v) {
     Uart& uart = *static_cast<Uart*>(uart_v);
@@ -587,6 +592,13 @@ void Uart::process(void* uart_v) {
         if (xQueueReceive(uart.m_queue, &event, portMAX_DELAY)) {
             //fmt::print("Event ID {}, size {}, timeouf flag {}\n", int(event.type), event.size, event.timeout_flag);
             ESP_LOGD(LOG_TAG, "%s event type %d, size %u, timeouf flag %d", uart.m_name, int(event.type), event.size, int(event.timeout_flag));
+            switch (event.type) {
+            case UART_DATA:
+                uart.m_rx_transfer_timeout = event.timeout_flag;
+                break;
+            default:
+                break;
+            }
             if (event.type < UART_EVENT_MAX) {
                 if (uart.m_callbacks[event.type]) {
                     uart.m_callbacks[event.type](uart);

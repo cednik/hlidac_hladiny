@@ -124,12 +124,15 @@ public:
     int peek();
     void flush();
 
+    bool rx_transfer_timeout();
+
 private:
     const uart_port_t m_uart_num;
     Settings m_settings;
     mutex_t m_mutex;
     QueueHandle_t m_queue;
     TaskHandle_t m_task;
+    bool m_rx_transfer_timeout;
     bool m_has_peek;
     uint8_t m_peek_byte;
     callback_t m_callbacks[UART_EVENT_MAX];
