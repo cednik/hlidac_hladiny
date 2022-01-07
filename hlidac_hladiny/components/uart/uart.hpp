@@ -4,12 +4,14 @@
 #include <driver/uart.h>
 
 #include <mutex>
+#include <functional>
 
 extern "C" int uart_ll_min_wakeup_thresh(void); // See uart_helper.c
 
 class Uart: public Stream
 {
     typedef std::recursive_mutex mutex_t;
+    typedef std::function<void(Uart&)> callback_t;
     typedef int baudrate_t;
     struct Settings {
         uart_config_t config = {
@@ -87,6 +89,16 @@ public:
     Uart& task_priority(UBaseType_t priority);
     Uart& name(const char* _name);
 
+// Callbacks
+    Uart& onData(const callback_t& fcn);
+    Uart& onBreak(const callback_t& fcn);
+    Uart& onBufferFull(const callback_t& fcn);
+    Uart& onFIFOoverflow(const callback_t& fcn);
+    Uart& onFrameError(const callback_t& fcn);
+    Uart& onParityError(const callback_t& fcn);
+    Uart& onDataBreak(const callback_t& fcn);
+    Uart& onPattern(const callback_t& fcn);
+
 // Opening
     bool open();
     void close();
@@ -120,6 +132,7 @@ private:
     TaskHandle_t m_task;
     bool m_has_peek;
     uint8_t m_peek_byte;
+    callback_t m_callbacks[UART_EVENT_MAX];
     char m_name[configMAX_TASK_NAME_LEN];
 
     bool _apply();

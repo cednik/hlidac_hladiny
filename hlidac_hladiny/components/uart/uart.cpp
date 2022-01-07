@@ -343,6 +343,48 @@ Uart& Uart::name(const char* _name) {
     return *this;
 }
 
+// Callbacks
+Uart& Uart::onData(const callback_t& fcn) {
+    std::lock_guard<mutex_t> lock (m_mutex);
+    m_callbacks[UART_DATA] = fcn;
+    return *this;
+}
+Uart& Uart::onBreak(const callback_t& fcn) {
+    std::lock_guard<mutex_t> lock (m_mutex);
+    m_callbacks[UART_BREAK] = fcn;
+    return *this;
+}
+Uart& Uart::onBufferFull(const callback_t& fcn) {
+    std::lock_guard<mutex_t> lock (m_mutex);
+    m_callbacks[UART_BUFFER_FULL] = fcn;
+    return *this;
+}
+Uart& Uart::onFIFOoverflow(const callback_t& fcn) {
+    std::lock_guard<mutex_t> lock (m_mutex);
+    m_callbacks[UART_FIFO_OVF] = fcn;
+    return *this;
+}
+Uart& Uart::onFrameError(const callback_t& fcn) {
+    std::lock_guard<mutex_t> lock (m_mutex);
+    m_callbacks[UART_FRAME_ERR] = fcn;
+    return *this;
+}
+Uart& Uart::onParityError(const callback_t& fcn) {
+    std::lock_guard<mutex_t> lock (m_mutex);
+    m_callbacks[UART_PARITY_ERR] = fcn;
+    return *this;
+}
+Uart& Uart::onDataBreak(const callback_t& fcn) {
+    std::lock_guard<mutex_t> lock (m_mutex);
+    m_callbacks[UART_DATA_BREAK] = fcn;
+    return *this;
+}
+Uart& Uart::onPattern(const callback_t& fcn) {
+    std::lock_guard<mutex_t> lock (m_mutex);
+    m_callbacks[UART_PATTERN_DET] = fcn;
+    return *this;
+}
+
 // Opening
 bool Uart::open() {
     std::lock_guard<mutex_t> lock (m_mutex);
@@ -545,6 +587,11 @@ void Uart::process(void* uart_v) {
         if (xQueueReceive(uart.m_queue, &event, portMAX_DELAY)) {
             //fmt::print("Event ID {}, size {}, timeouf flag {}\n", int(event.type), event.size, event.timeout_flag);
             ESP_LOGD(LOG_TAG, "%s event type %d, size %u, timeouf flag %d", uart.m_name, int(event.type), event.size, int(event.timeout_flag));
+            if (event.type < UART_EVENT_MAX) {
+                if (uart.m_callbacks[event.type]) {
+                    uart.m_callbacks[event.type](uart);
+                }
+            }
         }
     }
     vTaskDelete(nullptr);
