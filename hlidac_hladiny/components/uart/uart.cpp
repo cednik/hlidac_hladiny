@@ -589,8 +589,19 @@ void Uart::flush() {
     ESP_ERROR_CHECK(uart_flush(m_uart_num));
 }
 
+// State
 bool Uart::rx_transfer_timeout() {
+    std::lock_guard<mutex_t> lock (m_mutex);
     return m_rx_transfer_timeout;
+}
+
+bool Uart::collision_flag() {
+    std::lock_guard<mutex_t> lock (m_mutex);
+    if (!is_open())
+        return false;
+    bool v = false;
+    ESP_ERROR_CHECK(uart_get_collision_flag(m_uart_num, &v));
+    return v;
 }
 
 // static

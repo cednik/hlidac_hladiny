@@ -126,7 +126,9 @@ public:
     int peek();
     void flush();
 
+// State
     bool rx_transfer_timeout();
+    bool collision_flag();
 
 private:
     const uart_port_t m_uart_num;
