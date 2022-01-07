@@ -115,6 +115,7 @@ public:
 // Print
     size_t write(uint8_t);
     size_t write(const uint8_t *buffer, size_t size);
+    size_t write(const uint8_t *buffer, size_t size, uint8_t break_len);
     int availableForWrite();
     bool wait(); // Return true if there is nothing to send i.e. everything already sent. Return false on timeout.
     bool wait(TickType_t timeout);

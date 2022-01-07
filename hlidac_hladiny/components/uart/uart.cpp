@@ -489,7 +489,6 @@ void Uart::end() {
 }
 
 // Print
-
 size_t Uart::write(uint8_t v) {
     std::lock_guard<mutex_t> lock (m_mutex);
     if (!is_open())
@@ -502,6 +501,13 @@ size_t Uart::write(const uint8_t *buffer, size_t size) {
     if (!is_open())
         return 0;
     return uart_write_bytes(m_uart_num, buffer, size);
+}
+
+size_t Uart::write(const uint8_t *buffer, size_t size, uint8_t break_len) {
+    std::lock_guard<mutex_t> lock (m_mutex);
+    if (!is_open())
+        return 0;
+    return uart_write_bytes_with_break(m_uart_num, buffer, size, break_len);
 }
 
 extern "C" int uart_get_txfifo_len(const uart_port_t uart_num); // See uart_helper.c
