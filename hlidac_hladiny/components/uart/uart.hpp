@@ -46,7 +46,6 @@ class Uart: public Stream
         int queue_size = 32;
         uint32_t stack_size = 2048;
         UBaseType_t task_priority = configMAX_PRIORITIES / 2;
-        char name[configMAX_TASK_NAME_LEN];
     };
     Uart() = delete;
     Uart(Uart&) = delete;
@@ -121,6 +120,7 @@ private:
     TaskHandle_t m_task;
     bool m_has_peek;
     uint8_t m_peek_byte;
+    char m_name[configMAX_TASK_NAME_LEN];
 
     bool _apply();
     void _pin_config(int inv, int mask);

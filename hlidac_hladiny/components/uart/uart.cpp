@@ -24,10 +24,10 @@ Uart::Uart(const uart_port_t uart_num)
       m_has_peek{false},
       m_peek_byte{0}
 {
-    strncpy(m_settings.name, "UART", configMAX_TASK_NAME_LEN-1);
+    strncpy(m_name, "UART", configMAX_TASK_NAME_LEN-1);
     if (configMAX_TASK_NAME_LEN > 5)
-        m_settings.name[4] = '0' + m_uart_num;
-    m_settings.name[configMAX_TASK_NAME_LEN-1] = '\0';
+        m_name[4] = '0' + m_uart_num;
+    m_name[configMAX_TASK_NAME_LEN-1] = '\0';
 }
 
 Uart::~Uart() {
@@ -59,22 +59,22 @@ Uart& Uart::config(baudrate_t baud, uint32_t cfg) {
 
 #define CHECK_MIN(value, minlim, paramname) \
     if (value < minlim) { \
-        ESP_LOGE(LOG_TAG, "Unable to set %s %d for %s. Minimum is %d.", paramname, value, m_settings.name, minlim); \
+        ESP_LOGE(LOG_TAG, "Unable to set %s %d for %s. Minimum is %d.", paramname, value, m_name, minlim); \
         value = minlim; \
     }
 #define CHECK_MAX(value, maxlim, paramname) \
     if (value > maxlim) { \
-        ESP_LOGE(LOG_TAG, "Unable to set %s %d for %s. Maximum is %d.", paramname, value, m_settings.name, maxlim); \
+        ESP_LOGE(LOG_TAG, "Unable to set %s %d for %s. Maximum is %d.", paramname, value, m_name, maxlim); \
         value = maxlim; \
     }
 #define CHECK_RANGE(value, minlim, maxlim, paramname) \
     if (value < minlim || value > maxlim) { \
-        ESP_LOGE(LOG_TAG, "Unable to set %s %d for %s. It has to be in range <%d; %d>.", paramname, value, m_settings.name, minlim, maxlim); \
+        ESP_LOGE(LOG_TAG, "Unable to set %s %d for %s. It has to be in range <%d; %d>.", paramname, value, m_name, minlim, maxlim); \
         value = value < minlim ? minlim : maxlim; \
     }
 #define CHECK_PIN(pin, pinname, check) \
     if (pin != UART_PIN_NO_CHANGE && !check(pin)) { \
-        ESP_LOGE(LOG_TAG, "Invalid pin %d as %s of %s. Leaving unchanged.", pin, pinname, m_settings.name); \
+        ESP_LOGE(LOG_TAG, "Invalid pin %d as %s of %s. Leaving unchanged.", pin, pinname, m_name); \
         pin = UART_PIN_NO_CHANGE; \
     }
 
@@ -120,7 +120,7 @@ Uart& Uart::clock_source(uart_sclk_t source_clk) {
     std::lock_guard<mutex_t> lock (m_mutex);
     m_settings.config.source_clk = source_clk;
     if (_apply())
-        ESP_LOGW(LOG_TAG, "Setting clock_source on opened UART %s. Please reopen to take effect.", m_settings.name);
+        ESP_LOGW(LOG_TAG, "Setting clock_source on opened UART %s. Please reopen to take effect.", m_name);
     return *this;
 }
 Uart& Uart::sw_flow_control(bool en) {
@@ -135,7 +135,7 @@ Uart& Uart::sw_flow_control(uart_sw_flowctrl_t config) {
     return *this;
 }
 Uart& Uart::sw_flow_control(uint8_t xon_char, uint8_t xoff_char, uint8_t xon_thrd, uint8_t xoff_thrd) {
-    ESP_LOGE(LOG_TAG, "Settings software flow control symbols is not implemented in supported version of IDF (v4.4) [UART %s].", m_settings.name);
+    ESP_LOGE(LOG_TAG, "Settings software flow control symbols is not implemented in supported version of IDF (v4.4) [UART %s].", m_name);
     std::lock_guard<mutex_t> lock (m_mutex);
     CHECK_MAX(xon_thrd, SOC_UART_FIFO_LEN - 1, "SW flow control XON threshold");
     CHECK_MAX(xoff_thrd, SOC_UART_FIFO_LEN - 1, "SW flow control XOFF threshold");
@@ -149,7 +149,7 @@ Uart& Uart::sw_flow_control(uint8_t xon_char, uint8_t xoff_char, uint8_t xon_thr
     return *this;
 }
 Uart& Uart::sw_flow_control_symbols(uint8_t xon_char, uint8_t xoff_char) {
-    ESP_LOGE(LOG_TAG, "Settings software flow control symbols is not implemented in supported version of IDF (v4.4) [UART %s].", m_settings.name);
+    ESP_LOGE(LOG_TAG, "Settings software flow control symbols is not implemented in supported version of IDF (v4.4) [UART %s].", m_name);
     std::lock_guard<mutex_t> lock (m_mutex);
     m_settings.sw_flowctrl.xon_char = xon_char;
     m_settings.sw_flowctrl.xoff_char = xoff_char;
@@ -300,7 +300,7 @@ Uart& Uart::rx_buffer_size(int size) {
     CHECK_MIN(size, SOC_UART_FIFO_LEN + 1, "RX buffer size");
     m_settings.rx_buffer_size = size;
     if (_apply())
-        ESP_LOGW(LOG_TAG, "Setting rx_buffer_size on opened UART %s. Please reopen to take effect.", m_settings.name);
+        ESP_LOGW(LOG_TAG, "Setting rx_buffer_size on opened UART %s. Please reopen to take effect.", m_name);
     return *this;
 }
 Uart& Uart::tx_buffer_size(int size) {
@@ -308,37 +308,37 @@ Uart& Uart::tx_buffer_size(int size) {
     CHECK_MIN(size, SOC_UART_FIFO_LEN + 1, "TX buffer size");
     m_settings.tx_buffer_size = size;
     if (_apply())
-        ESP_LOGW(LOG_TAG, "Setting tx_buffer_size on opened UART %s. Please reopen to take effect.", m_settings.name);
+        ESP_LOGW(LOG_TAG, "Setting tx_buffer_size on opened UART %s. Please reopen to take effect.", m_name);
     return *this;
 }
 Uart& Uart::queue_size(int size) {
     std::lock_guard<mutex_t> lock (m_mutex);
     m_settings.queue_size = size;
     if (_apply())
-        ESP_LOGW(LOG_TAG, "Setting queue_size on opened UART %s. Please reopen to take effect.", m_settings.name);
+        ESP_LOGW(LOG_TAG, "Setting queue_size on opened UART %s. Please reopen to take effect.", m_name);
     return *this;
 }
 Uart& Uart::stack_size(uint32_t size) {
     std::lock_guard<mutex_t> lock (m_mutex);
     m_settings.stack_size = size;
     if (_apply())
-        ESP_LOGW(LOG_TAG, "Setting stack_size on opened UART %s. Please reopen to take effect.", m_settings.name);
+        ESP_LOGW(LOG_TAG, "Setting stack_size on opened UART %s. Please reopen to take effect.", m_name);
     return *this;
 }
 Uart& Uart::task_priority(UBaseType_t priority) {
     std::lock_guard<mutex_t> lock (m_mutex);
     m_settings.task_priority = priority;
     if (_apply())
-        ESP_LOGW(LOG_TAG, "Setting task_priority on opened UART %s. Please reopen to take effect.", m_settings.name);
+        ESP_LOGW(LOG_TAG, "Setting task_priority on opened UART %s. Please reopen to take effect.", m_name);
     return *this;
 }
 Uart& Uart::name(const char* _name) {
     std::lock_guard<mutex_t> lock (m_mutex);
     if (is_open()) {
-        ESP_LOGE(LOG_TAG, "Can not change name of opened UART %s. Please close it first.", m_settings.name);
+        ESP_LOGE(LOG_TAG, "Can not change name of opened UART %s. Please close it first.", m_name);
     } else {
-        strncpy(m_settings.name, _name, configMAX_TASK_NAME_LEN-1);
-        m_settings.name[configMAX_TASK_NAME_LEN-1] = '\0';
+        strncpy(m_name, _name, configMAX_TASK_NAME_LEN-1);
+        m_name[configMAX_TASK_NAME_LEN-1] = '\0';
     }
     return *this;
 }
@@ -379,7 +379,7 @@ bool Uart::open() {
     fmt::print("\t{:.<32}{}\n", "queue_size", m_settings.queue_size);
     fmt::print("\t{:.<32}{}\n", "stack_size", m_settings.stack_size);
     fmt::print("\t{:.<32}{}\n", "task_priority", m_settings.task_priority);
-    fmt::print("\t{:.<32}{}\n", "name", m_settings.name);*/
+    fmt::print("\t{:.<32}{}\n", "name", name);*/
 
     ESP_ERROR_CHECK(uart_driver_install(m_uart_num, m_settings.rx_buffer_size, m_settings.tx_buffer_size, m_settings.queue_size, &m_queue, ESP_INTR_FLAG_IRAM));
     ESP_ERROR_CHECK(uart_param_config(m_uart_num, &m_settings.config));
@@ -393,13 +393,13 @@ bool Uart::open() {
     ESP_ERROR_CHECK(uart_set_tx_empty_threshold(m_uart_num, m_settings.tx_empty_threshold));
     ESP_ERROR_CHECK(uart_set_wakeup_threshold(m_uart_num, m_settings.wakeup_threshold));
     BaseType_t err = xTaskCreate(process,
-                                 m_settings.name,
+                                 m_name,
                                  m_settings.stack_size,
                                  this,
                                  m_settings.task_priority,
                                  &m_task );
     if (err != pdPASS) {
-        ESP_LOGE(LOG_TAG, "Error 0x%X occured while starting process task of UART %s.", err, m_settings.name);
+        ESP_LOGE(LOG_TAG, "Error 0x%X occured while starting process task of UART %s.", err, m_name);
         m_task = nullptr;
         close();
         return false;
@@ -544,7 +544,7 @@ void Uart::process(void* uart_v) {
     for (;;) {
         if (xQueueReceive(uart.m_queue, &event, portMAX_DELAY)) {
             //fmt::print("Event ID {}, size {}, timeouf flag {}\n", int(event.type), event.size, event.timeout_flag);
-            ESP_LOGD(LOG_TAG, "%s event type %d, size %u, timeouf flag %d", uart.m_settings.name, int(event.type), event.size, int(event.timeout_flag));
+            ESP_LOGD(LOG_TAG, "%s event type %d, size %u, timeouf flag %d", uart.m_name, int(event.type), event.size, int(event.timeout_flag));
         }
     }
     vTaskDelete(nullptr);
