@@ -31,6 +31,7 @@ class Uart: public Stream
         };
         bool sw_flowctrl_en = false;
         uart_mode_t mode = UART_MODE_UART;
+        bool loopback = false;
         uart_signal_inv_t signal_inv = UART_SIGNAL_INV_DISABLE;
         int8_t pin_txd = UART_PIN_NO_CHANGE;
         int8_t pin_rxd = UART_PIN_NO_CHANGE;
@@ -69,6 +70,7 @@ public:
     Uart& sw_flow_control_symbols(uint8_t xon_char, uint8_t xoff_char);
     Uart& sw_flow_control_thresholds(uint8_t xon_thrd, uint8_t xoff_thrd);
     Uart& mode(uart_mode_t _mode);
+    Uart& loopback(bool en = true);
     Uart& pins(int8_t pin_txd, int8_t pin_rxd, uart_signal_inv_t inv = UART_SIGNAL_INV_DISABLE);
     Uart& pins(int8_t pin_txd, int8_t pin_rxd, int8_t pin_rts, int8_t pin_cts, uart_signal_inv_t inv = UART_SIGNAL_INV_DISABLE);
     Uart& pin_txd(int8_t pin, bool inv = false);

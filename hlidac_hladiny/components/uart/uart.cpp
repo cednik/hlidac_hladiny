@@ -173,6 +173,13 @@ Uart& Uart::mode(uart_mode_t _mode) {
         ESP_ERROR_CHECK(uart_set_mode(m_uart_num, _mode));
     return *this;
 }
+Uart& Uart::loopback(bool en) {
+    std::lock_guard<mutex_t> lock (m_mutex);
+    m_settings.loopback = en;
+    if (_apply())
+        ESP_ERROR_CHECK(uart_set_loop_back(m_uart_num, en));
+    return *this;
+}
 void Uart::_pin_config(int inv, int mask) {
     m_settings.signal_inv = uart_signal_inv_t((m_settings.signal_inv & ~mask) | (inv & mask));
     if (_apply()) {
@@ -405,6 +412,7 @@ bool Uart::open() {
     fmt::print("\t{:.<32}{}\n", "xoff_thrd", m_settings.sw_flowctrl.xoff_thrd);
     fmt::print("\t{:.<32}{}\n", "sw_flowctrl_en", m_settings.sw_flowctrl_en);
     fmt::print("\t{:.<32}{}\n", "mode", m_settings.mode);
+    fmt::print("\t{:.<32}{}\n", "loopback", m_settings.loopback);
     fmt::print("\t{:.<32}{}\n", "signal_inv", m_settings.signal_inv);
     fmt::print("\t{:.<32}{}\n", "pin_txd", m_settings.pin_txd);
     fmt::print("\t{:.<32}{}\n", "pin_rxd", m_settings.pin_rxd);
@@ -435,6 +443,7 @@ bool Uart::open() {
     ESP_ERROR_CHECK(uart_set_rx_full_threshold(m_uart_num, m_settings.rx_full_threshold));
     ESP_ERROR_CHECK(uart_set_tx_empty_threshold(m_uart_num, m_settings.tx_empty_threshold));
     ESP_ERROR_CHECK(uart_set_wakeup_threshold(m_uart_num, m_settings.wakeup_threshold));
+    ESP_ERROR_CHECK(uart_set_loop_back(m_uart_num, m_settings.loopback));
     BaseType_t err = xTaskCreate(process,
                                  m_name,
                                  m_settings.stack_size,
