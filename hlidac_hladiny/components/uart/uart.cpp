@@ -10,10 +10,33 @@
 #include <freertos/queue.h>
 
 #include <cstring>
+#include <memory>
 
 #include <fmt/core.h>
 
 static const char* LOG_TAG = "UART";
+
+static std::unique_ptr<Uart> global_instance[UART_NUM_MAX];
+
+Uart& Uart::get_port(const uart_port_t uart_num) {
+    if (uart_num >= UART_NUM_MAX) {
+        ESP_LOGE(LOG_TAG, "There is no UART %d, only UART0 - UART%d. Aborting.", uart_num, UART_NUM_MAX-1);
+        abort();
+    }
+    if (!global_instance[uart_num])
+         global_instance[uart_num].reset(new Uart(uart_num));
+    return *global_instance[uart_num];
+}
+
+void Uart::free_port(const uart_port_t uart_num) {
+    if (uart_num >= UART_NUM_MAX) {
+        ESP_LOGW(LOG_TAG, "There is no UART %d for freeing, only UART0 - UART%d. Do nothing.", uart_num, UART_NUM_MAX-1);
+    } else if (!global_instance[uart_num]) {
+        ESP_LOGW(LOG_TAG, "UART%d is already free.", uart_num);
+    } else {
+        global_instance[uart_num].reset();
+    }
+}
 
 Uart::Uart(const uart_port_t uart_num)
     : m_uart_num{uart_num},

@@ -52,8 +52,10 @@ class Uart: public Stream
     };
     Uart() = delete;
     Uart(Uart&) = delete;
-public:
     Uart(const uart_port_t uart_num);
+public:
+    static Uart& get_port(const uart_port_t uart_num);
+    static void free_port(const uart_port_t uart_num);
     virtual ~Uart();
 // Settings
     Uart& config(uint32_t cfg);

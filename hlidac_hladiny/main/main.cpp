@@ -13,7 +13,7 @@ using fmt::print;
 
 #include <vector>
 
-Uart serial1 { UART_NUM_1 };
+Uart& serial1 = Uart::get_port(UART_NUM_1);
 
 extern "C" void app_main()
 {
