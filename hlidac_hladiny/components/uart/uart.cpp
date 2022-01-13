@@ -10,7 +10,6 @@
 #include <freertos/queue.h>
 
 #include <cstring>
-#include <memory>
 
 #include <fmt/core.h>
 
@@ -46,7 +45,8 @@ Uart::Uart(const uart_port_t uart_num)
       m_task{nullptr},
       m_rx_transfer_timeout{true},
       m_has_peek{false},
-      m_peek_byte{0}
+      m_peek_byte{0},
+      m_cstream{nullptr}
 {
     strncpy(m_name, "UART", configMAX_TASK_NAME_LEN-1);
     if (configMAX_TASK_NAME_LEN > 5)
@@ -467,7 +467,7 @@ bool Uart::open() {
     ESP_ERROR_CHECK(uart_set_tx_empty_threshold(m_uart_num, m_settings.tx_empty_threshold));
     ESP_ERROR_CHECK(uart_set_wakeup_threshold(m_uart_num, m_settings.wakeup_threshold));
     ESP_ERROR_CHECK(uart_set_loop_back(m_uart_num, m_settings.loopback));
-    BaseType_t err = xTaskCreate(process,
+    BaseType_t err = xTaskCreate(_process,
                                  m_name,
                                  m_settings.stack_size,
                                  this,
@@ -485,6 +485,7 @@ bool Uart::open() {
 void Uart::close() {
     std::lock_guard<mutex_t> lock (m_mutex);
     if (_apply()) {
+        m_cstream.reset(); // CHECK ME: Is it OK to free the FILE* pointer???
         while (m_task) {
             vTaskDelete(m_task);
             m_task = nullptr;
@@ -633,8 +634,15 @@ bool Uart::collision_flag() {
     return v;
 }
 
+FILE* Uart::cstream() {
+    if (!m_cstream) {
+        m_cstream.reset(funopen(this, _cread, _cwrite, nullptr, _cclose));
+    }
+    return m_cstream.get();
+}
+
 // static
-void Uart::process(void* uart_v) {
+void Uart::_process(void* uart_v) {
     Uart& uart = *static_cast<Uart*>(uart_v);
     uart_event_t event;
     for (;;) {
@@ -656,4 +664,17 @@ void Uart::process(void* uart_v) {
         }
     }
     vTaskDelete(nullptr);
+}
+
+int Uart::_cread(void* uart_v, char* buf, int len) {
+    return static_cast<Uart*>(uart_v)->read(reinterpret_cast<uint8_t*>(buf), len);
+}
+
+int Uart::_cwrite(void* uart_v, const char* buf, int len) {
+    return static_cast<Uart*>(uart_v)->write(reinterpret_cast<const uint8_t*>(buf), len);
+}
+
+int Uart::_cclose(void* uart_v) {
+    static_cast<Uart*>(uart_v)->close(); // CHECK ME: Should I do that?
+    return 0;
 }

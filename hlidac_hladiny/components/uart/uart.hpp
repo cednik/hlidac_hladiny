@@ -5,6 +5,7 @@
 
 #include <mutex>
 #include <functional>
+#include <memory>
 
 extern "C" int uart_ll_min_wakeup_thresh(void); // See uart_helper.c
 
@@ -133,6 +134,9 @@ public:
     bool rx_transfer_timeout();
     bool collision_flag();
 
+// Misc
+    FILE* cstream();
+
 private:
     const uart_port_t m_uart_num;
     Settings m_settings;
@@ -142,11 +146,16 @@ private:
     bool m_rx_transfer_timeout;
     bool m_has_peek;
     uint8_t m_peek_byte;
+    std::unique_ptr<FILE> m_cstream;
     callback_t m_callbacks[UART_EVENT_MAX];
     char m_name[configMAX_TASK_NAME_LEN];
 
     bool _apply();
     void _pin_config(int inv, int mask);
 
-    static void process(void* uart_v);
+    static void _process(void* uart_v);
+
+    static int _cread(void* uart_v, char* buf, int len);
+    static int _cwrite(void* uart_v, const char* buf, int len);
+    static int _cclose(void* uart_v);
 };

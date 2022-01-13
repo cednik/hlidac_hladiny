@@ -40,11 +40,17 @@ extern "C" void app_main()
             print("recv \"{}\"\n", static_cast<char*>(&buf[0]));
         } )
         .open();
+    setvbuf(serial1.cstream(), nullptr, _IONBF, 0); // by default cstream is buffered (128 B said my test)
 
+    print(stdout, "stdout test\n");
+
+    int i = 0;
     for (;;taskYIELD()) {
         //ESP_LOGD("MAIN", "tick");
         //vTaskDelay(100 / portTICK_PERIOD_MS);
-        serial1.println("ahoj");
+        print(serial1.cstream(), "{:4} ahoj\n", i%10000);
+        print("{:4} ahoj\n", i%10000);
+        ++i;
         vTaskDelay(1000 / portTICK_PERIOD_MS);
     }
 }
