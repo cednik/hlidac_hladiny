@@ -136,6 +136,7 @@ public:
 
 // Misc
     FILE* cstream();
+    int make_cstream_unbuffered();
 
 private:
     const uart_port_t m_uart_num;

@@ -40,7 +40,7 @@ extern "C" void app_main()
             print("recv \"{}\"\n", static_cast<char*>(&buf[0]));
         } )
         .open();
-    setvbuf(serial1.cstream(), nullptr, _IONBF, 0); // by default cstream is buffered (128 B said my test)
+    serial1.make_cstream_unbuffered();
 
     print(stdout, "stdout test\n");
 

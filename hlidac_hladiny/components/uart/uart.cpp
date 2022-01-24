@@ -641,6 +641,10 @@ FILE* Uart::cstream() {
     return m_cstream.get();
 }
 
+int Uart::make_cstream_unbuffered() {
+    return setvbuf(cstream(), nullptr, _IONBF, 0); // by default cstream is buffered (128 B said my test)
+}
+
 // static
 void Uart::_process(void* uart_v) {
     Uart& uart = *static_cast<Uart*>(uart_v);

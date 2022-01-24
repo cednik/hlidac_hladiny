@@ -95,5 +95,5 @@
     "xtree": "cpp",
     "xutility": "cpp"
   },
-  "idf.portWin": "COM5"
+  "idf.portWin": "COM6"
 }
