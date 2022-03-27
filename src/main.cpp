@@ -7,6 +7,8 @@
 #include "nvs_flash.h"
 #include "nvs.h"
 #include "esp_system.h"
+#include "driver/adc.h"
+#include "esp_adc_cal.h"
 
 #include <string>
 #include <cctype>
@@ -39,6 +41,9 @@ using fmt::print;
 #define NVS_KEY_LEVEL_ON        "LEVEL_ON"
 
 #define USER_SERVER_PORT 54321
+
+#define DEFAULT_VREF    1100
+#define NO_OF_SAMPLES   16          //Multisampling
 
 #define LEVEL_ERROR -32768
 
@@ -315,6 +320,32 @@ void listDir(Stream& stream, fs::FS &fs, const char * dirname, uint8_t levels = 
     }
 }
 
+static void adc_check_efuse(void)
+{
+    //Check if TP is burned into eFuse
+    if (esp_adc_cal_check_efuse(ESP_ADC_CAL_VAL_EFUSE_TP) == ESP_OK) {
+        printf("eFuse Two Point: Supported\n");
+    } else {
+        printf("eFuse Two Point: NOT supported\n");
+    }
+    //Check Vref is burned into eFuse
+    if (esp_adc_cal_check_efuse(ESP_ADC_CAL_VAL_EFUSE_VREF) == ESP_OK) {
+        printf("eFuse Vref: Supported\n");
+    } else {
+        printf("eFuse Vref: NOT supported\n");
+    }
+}
+static void print_char_val_type(esp_adc_cal_value_t val_type)
+{
+    if (val_type == ESP_ADC_CAL_VAL_EFUSE_TP) {
+        printf("Characterized using Two Point Value\n");
+    } else if (val_type == ESP_ADC_CAL_VAL_EFUSE_VREF) {
+        printf("Characterized using eFuse Vref\n");
+    } else {
+        printf("Characterized using Default Vref\n");
+    }
+}
+
 void setup() {
     Serial.begin(115200);
     print(Serial, "\nHlidac hladiny\n\t{} {}\n", __DATE__, __TIME__);
@@ -587,6 +618,18 @@ void setup() {
     bool manual = false;
     bool force_on = false;
 
+    const adc_unit_t adc_unit = ADC_UNIT_1;
+    const adc_atten_t adc_atten = ADC_ATTEN_DB_11;
+    const adc_bits_width_t adc_width = ADC_WIDTH_BIT_12;
+    const adc1_channel_t vin_adc_channel = adc1_channel_t(digitalPinToAnalogChannel(PIN_PWR_CHECK));
+    adc_check_efuse();
+    adc1_config_width(adc_width);
+    adc1_config_channel_atten(vin_adc_channel, adc_atten);
+    esp_adc_cal_characteristics_t *adc_chars = (esp_adc_cal_characteristics_t*)calloc(1, sizeof(esp_adc_cal_characteristics_t));
+    esp_adc_cal_value_t val_type = esp_adc_cal_characterize(adc_unit, adc_atten, adc_width, DEFAULT_VREF, adc_chars);
+    print_char_val_type(val_type);
+    uint32_t adc_vin = 0;
+    
     meas.force();
     
     for(;;) {
@@ -605,6 +648,12 @@ void setup() {
             iLeds.show();
             iLeds.wait();
         }
+        for (int i = 0; i != NO_OF_SAMPLES; i++)
+            adc_vin += adc1_get_raw(vin_adc_channel);
+        adc_vin = esp_adc_cal_raw_to_voltage(adc_vin / NO_OF_SAMPLES, adc_chars);
+        // if (com_client) {
+        //     print(com_client, "p {:4}\n", adc_vin);
+        // }
         if (meas) {
             meas.ack();
             raw_level = utsMeas(uts);
@@ -613,13 +662,13 @@ void setup() {
 
             const float temp = thermometer.readTemperature();
             const float humid = thermometer.readHumidity();
-            
+
             display.setCursor(0, 0);
             print(display, "d: {:4} mm; t: {:4.1f} °C; h: {:2.0f}\n", level, temp, humid);
-            print(*user_stream, "d: {:4} mm; t: {:4.1f} °C; h: {:2.0f}\n", level, temp, humid);
+            print(*user_stream, "d: {:4} mm; t: {:4.1f} °C; h: {:2.0f}; p: {:4} mV\n", level, temp, humid, adc_vin);
             display.display();
             if (com_client) {
-                print(com_client, "r: {}; d: {:4} mm; t: {:4.1f} °C; h: {:2.0f}\n", rtc.now().timestamp(DateTime::TIMESTAMP_FULL).c_str(), level, temp, humid);
+                print(com_client, "r: {}; d: {:4} mm; t: {:4.1f} °C; h: {:2.0f}; p: {:4} mV\n", rtc.now().timestamp(DateTime::TIMESTAMP_FULL).c_str(), level, temp, humid, adc_vin);
             }
 
             if (level < 0 && digitalRead(PIN_RELAY) == HIGH && !force_on) {
