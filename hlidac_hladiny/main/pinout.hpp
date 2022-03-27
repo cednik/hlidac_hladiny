@@ -35,6 +35,9 @@
 39 NC
 */
 
+#define PIN_TXD0       1
+#define PIN_RXD0       3
+
 #define PIN_TRIG       18
 #define PIN_ECHO       21
 

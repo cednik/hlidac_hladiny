@@ -10,15 +10,20 @@ using fmt::print;
 #include "rtc.hpp"
 #include "iLeds.hpp"
 #include <uart.hpp>
+#include <log_buffer.hpp>
 
 #include <vector>
 
-Uart& serial1 = Uart::get_port(UART_NUM_1);
+static const char* LOG_TAG = "LOG_MAIN";
+
+Uart& serial0 = Uart::get_port(UART_NUM_0);
 
 extern "C" void app_main()
 {
     initArduino();
     print("\nHlidac hladiny\n\t{} {}\n", __DATE__, __TIME__);
+
+    LogBuffer::begin();
 
     Wire.begin(PIN_SDA, PIN_SCL, I2C_FREQUENCY);
     i2c_scan(Wire);
@@ -27,10 +32,13 @@ extern "C" void app_main()
     thermometer.begin();
     RTC::init();
 
-    esp_log_level_set("*", ESP_LOG_VERBOSE);
+    esp_log_level_set("*", ESP_LOG_DEBUG);
 
-    serial1
-        .pins(23, 22)
+    ESP_LOGI(LOG_TAG, "Opening serial0");
+    LogBuffer::pause();
+    delay(20);
+    serial0
+        .pins(PIN_TXD0, PIN_RXD0)
         .config(115200, SERIAL_8N1)
         .onData([](Uart& uart) {
             const size_t len = uart.available();
@@ -40,16 +48,19 @@ extern "C" void app_main()
             print("recv \"{}\"\n", static_cast<char*>(&buf[0]));
         } )
         .open();
-    serial1.make_cstream_unbuffered();
-
+    serial0.make_cstream_unbuffered();
+    LogBuffer::redirect(serial0);
+    LogBuffer::resume();
+    ESP_LOGI(LOG_TAG, "Starting main loop");
     print(stdout, "stdout test\n");
 
     int i = 0;
     for (;;taskYIELD()) {
         //ESP_LOGD("MAIN", "tick");
         //vTaskDelay(100 / portTICK_PERIOD_MS);
-        print(serial1.cstream(), "{:4} ahoj\n", i%10000);
+        //print(serial1.cstream(), "{:4} ahoj\n", i%10000);
         print("{:4} ahoj\n", i%10000);
+        ESP_LOGI(LOG_TAG, "pokus %d", i);
         ++i;
         vTaskDelay(1000 / portTICK_PERIOD_MS);
     }
