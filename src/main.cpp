@@ -29,10 +29,14 @@
 
 using fmt::print;
 
-#define NVS_KEY_WIFI_SSID  "WiFi_SSID"
-#define NVS_KEY_WIFI_PSWD  "WiFi_PSWD"
-#define NVS_KEY_NAME       "NAME"
-#define NVS_KEY_LEVEL_ZERO "LEVEL_ZERO"
+#define NVS_KEY_NAME            "NAME"
+#define NVS_KEY_WIFI_SSID       "WiFi_SSID"
+#define NVS_KEY_WIFI_PSWD       "WiFi_PSWD"
+#define NVS_KEY_COM_SERVER_ADDR "COM_ADDR"
+#define NVS_KEY_COM_SERVER_PORT "COM_PORT"
+#define NVS_KEY_COM_SERVER_TMOT "COM_TMOT"
+#define NVS_KEY_LEVEL_ZERO      "LEVEL_ZERO"
+#define NVS_KEY_LEVEL_ON        "LEVEL_ON"
 
 #define USER_SERVER_PORT 54321
 
@@ -272,6 +276,13 @@ bool isInt16(const std::string& str, int16_t* pRes = nullptr) {
         *pRes = int16_t(n);
     return res;
 }
+bool isUint16(const std::string& str, uint16_t* pRes = nullptr) {
+    int n;
+    bool res = isInt(str, &n);
+    if (res && pRes)
+        *pRes = uint16_t(n);
+    return res;
+}
 
 template <class Stream>
 void listDir(Stream& stream, fs::FS &fs, const char * dirname, uint8_t levels = 0){
@@ -430,6 +441,46 @@ void setup() {
         break;
     }
 
+    std::string com_addr;
+    uint16_t com_port = 1234;
+    int32_t com_timeout = 100;
+    err = nvs_get_string(nvsHandle, NVS_KEY_COM_SERVER_ADDR, com_addr);
+    switch (err) {
+    case ESP_OK:
+        err = nvs_get_u16(nvsHandle, NVS_KEY_COM_SERVER_PORT, &com_port);
+        switch (err) {
+        case ESP_OK:
+            break;
+        case ESP_ERR_NVS_NOT_FOUND:
+            print(Serial, "No COM server port set, fallback to {}.\n", com_port);
+            break;
+        default:
+            print(Serial, "Error {} {} reading COM server port!\n", err, esp_err_to_name(err));
+            print(Serial, "Fallback to {}.\n", com_port);
+            break;
+        }
+        err = nvs_get_i32(nvsHandle, NVS_KEY_COM_SERVER_PORT, &com_timeout);
+        switch (err) {
+        case ESP_OK:
+            break;
+        case ESP_ERR_NVS_NOT_FOUND:
+            print(Serial, "No COM server timeout set, fallback to {}.\n", com_timeout);
+            break;
+        default:
+            print(Serial, "Error {} {} reading COM server timeout!\n", err, esp_err_to_name(err));
+            print(Serial, "Fallback to {}.\n", com_timeout);
+            break;
+        }
+        print(Serial, "COM server: {}:{} (timeout {}).\n", com_addr, com_port, com_timeout);
+        break;
+    case ESP_ERR_NVS_NOT_FOUND:
+        print(Serial, "No COM server set\n");
+        break;
+    default:
+        print(Serial, "Error {} {} reading COM server address!\n", err, esp_err_to_name(err));
+        break;
+    }
+
     int16_t level_zero = 4300;
     err = nvs_get_i16(nvsHandle, NVS_KEY_LEVEL_ZERO, &level_zero);
     switch (err) {
@@ -440,8 +491,23 @@ void setup() {
         print(Serial, "No Zero level set, fallback to {} mm.\n", level_zero);
         break;
     default:
-        print(Serial, "Error {} {} reading Wi-Fi SSID!\n", err, esp_err_to_name(err));
+        print(Serial, "Error {} {} reading zero level!\n", err, esp_err_to_name(err));
         print(Serial, "Fallback to {} mm.\n", level_zero);
+        break;
+    }
+
+    int16_t level_on = 1000;
+    err = nvs_get_i16(nvsHandle, NVS_KEY_LEVEL_ZERO, &level_on);
+    switch (err) {
+    case ESP_OK:
+        print(Serial, "On level: {} mm.\n", level_on);
+        break;
+    case ESP_ERR_NVS_NOT_FOUND:
+        print(Serial, "No On level set, fallback to {} mm.\n", level_on);
+        break;
+    default:
+        print(Serial, "Error {} {} reading on level!\n", err, esp_err_to_name(err));
+        print(Serial, "Fallback to {} mm.\n", level_on);
         break;
     }
 
@@ -494,25 +560,32 @@ void setup() {
 
     timeout blink(msec(500));
     timeout meas(msec(1000));
+    timeout com_reconect(msec(2000));
+    com_reconect.cancel();
 
     wl_status_t wifi_last_status = WiFi.status();
 
     WiFiServer user_server(USER_SERVER_PORT, 1);
     WiFiClient user_client;
+    WiFiClient com_client;
     bool user_client_connected = false;
+    bool com_client_connected = false;
     Stream* user_stream = &Serial;
+    Stream* mock_user_stream = nullptr;
 
     int16_t raw_level = 0;
     int16_t level = 0;
     raw_level = utsMeas(uts);
     level = (raw_level < 0) ? LEVEL_ERROR : (level_zero - raw_level);
     print(Serial, "Level {} mm: ", level);
-    if (level > 0) {
+    if (level > level_on) {
         digitalWrite(PIN_RELAY, 0);
         print(Serial, "switching on\n");
     } else {
         print(Serial, "keep off\n");
     }
+    bool manual = false;
+    bool force_on = false;
 
     meas.force();
     
@@ -545,10 +618,22 @@ void setup() {
             print(display, "d: {:4} mm; t: {:4.1f} °C; h: {:2.0f}\n", level, temp, humid);
             print(*user_stream, "d: {:4} mm; t: {:4.1f} °C; h: {:2.0f}\n", level, temp, humid);
             display.display();
+            if (com_client) {
+                print(com_client, "r: {}; d: {:4} mm; t: {:4.1f} °C; h: {:2.0f}\n", rtc.now().timestamp(DateTime::TIMESTAMP_FULL).c_str(), level, temp, humid);
+            }
 
-            if (level < 0 && digitalRead(PIN_RELAY) == HIGH) {
+            if (level < 0 && digitalRead(PIN_RELAY) == HIGH && !force_on) {
                 digitalWrite(PIN_RELAY, 0);
                 print(*user_stream, "LOW LEVEL, swithing off!\n");
+                if (com_client) {
+                    print(com_client, "OFF\n");
+                }
+            } else if (level > level_on && digitalRead(PIN_RELAY) == LOW && !manual) {
+                digitalWrite(PIN_RELAY, 1);
+                print(*user_stream, "Enough level, swithing on.\n");
+                if (com_client) {
+                    print(com_client, "ON\n");
+                }
             }
         }
         wl_status_t wifi_status = WiFi.status();
@@ -564,6 +649,20 @@ void setup() {
                 }
                 OTA.begin();
                 user_server.begin();
+                if (!com_client.connected()) {
+                    if (!com_addr.empty()) {
+                        print(Serial, "Connecting to COM server {}:{}...", com_addr, com_port);
+                        if (com_client.connect(com_addr.c_str(), com_port, com_timeout)) {
+                            com_client_connected = true;
+                            com_reconect.cancel();
+                            print(Serial, " connected\n");
+                        } else {
+                            com_client_connected = false;
+                            com_reconect.restart();
+                            print(Serial, " failed\n");
+                        }
+                    }
+                }
                 break;
             case WL_CONNECT_FAILED:
                 print(Serial, "Wi-Fi connecting failed\n");
@@ -581,6 +680,25 @@ void setup() {
             }
             wifi_last_status = wifi_status;
         }
+        if (wifi_status == WL_CONNECTED && !com_addr.empty() && !com_client) {
+            if (com_client_connected) {
+                com_client_connected = false;
+                com_reconect.restart();
+                com_reconect.force();
+            }
+            if (com_reconect) {
+                print(Serial, "Connecting to COM server {}:{}...", com_addr, com_port);
+                if (com_client.connect(com_addr.c_str(), com_port, com_timeout)) {
+                    com_client_connected = true;
+                    com_reconect.cancel();
+                    print(Serial, " connected\n");
+                } else {
+                    com_client_connected = false;
+                    com_reconect.restart();
+                    print(Serial, " failed\n");
+                }
+            }
+        }
         if (!user_client) {
             if (user_client_connected) {
                 print(Serial, "Client disconnected\n");
@@ -595,6 +713,10 @@ void setup() {
                 user_stream = &user_client;
             }
         }
+        if (com_client.available()) {
+            mock_user_stream = user_stream;
+            user_stream = &com_client;
+        }
         if (user_stream->available()) {
             char c = user_stream->read();
             switch (c) {
@@ -604,11 +726,34 @@ void setup() {
                 break;
             case '1':
                 digitalWrite(PIN_RELAY, 1);
-                print(*user_stream, "ON\n");
+                print(*user_stream, "Manual ON\n");
+                manual = true;
                 break;
             case '0':
                 digitalWrite(PIN_RELAY, 0);
-                print(*user_stream, "OFF\n");
+                print(*user_stream, "Manual OFF\n");
+                manual = true;
+                break;
+            case 'a':
+                manual = false;
+                force_on = false;
+                print(*user_stream, "Regular mode\n");
+                break;
+            case 'O':
+                force_on = true;
+                print(*user_stream, "Force mode, be aware!\n");
+                break;
+            case 'R':
+                print(*user_stream, "Resseting...\n");
+                delay(msec(100));
+                if (com_client)
+                    com_client.stop();
+                if (user_client)
+                    user_client.stop();
+                user_stream = &Serial;
+                user_server.end();
+                WiFi.disconnect();
+                esp_restart();
                 break;
             case 'T':
                 if (!rtcConnected) {
@@ -709,7 +854,39 @@ void setup() {
                 rtc.writeSqwPinMode(DS1307_ON);
                 print(*user_stream, "RTC set\n");
                 break;
+            case 'C':
+                com_addr = read_string(*user_stream, "Enter new COM server address: ");
+                if (isUint16(read_string(*user_stream, "Enter new COM server port: "), &com_port)) {
+                    err = nvs_set_u16(nvsHandle, NVS_KEY_COM_SERVER_PORT, com_port);
+                    if (err != ESP_OK) {
+                        print(*user_stream, "\nSaving COM port failed, because {}\n", esp_err_to_name(err));
+                        break;
+                    }
+                    err = nvs_set_str(nvsHandle, NVS_KEY_COM_SERVER_ADDR, com_addr.c_str());
+                    if (err != ESP_OK) {
+                        print(*user_stream, "\nSaving COM address failed, because {}\n", esp_err_to_name(err));
+                        break;
+                    }
+                    err = nvs_commit(nvsHandle);
+                    if (err != ESP_OK) {
+                        print(*user_stream, "\nNVS commit failed\n");
+                    }
+                } else {
+                    print(*user_stream, "Invalid input\n");
+                }
+                if (com_client) {
+                    print(*user_stream, "Disconnecting old COM client.\n");
+                    com_client.stop();
+                    com_client_connected = false;
+                    com_reconect.restart();
+                    com_reconect.force();
+                }
+                break;
             }
+        }
+        if (mock_user_stream) {
+            user_stream = mock_user_stream;
+            mock_user_stream = nullptr;
         }
         OTA.handle();
     }
