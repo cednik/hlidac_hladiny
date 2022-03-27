@@ -39,6 +39,7 @@ using fmt::print;
 #define NVS_KEY_COM_SERVER_TMOT "COM_TMOT"
 #define NVS_KEY_LEVEL_ZERO      "LEVEL_ZERO"
 #define NVS_KEY_LEVEL_ON        "LEVEL_ON"
+#define NVS_KEY_MEAS_PERIOD     "MEAS_T"
 
 #define USER_SERVER_PORT 54321
 
@@ -282,6 +283,13 @@ bool isInt16(const std::string& str, int16_t* pRes = nullptr) {
     return res;
 }
 bool isUint16(const std::string& str, uint16_t* pRes = nullptr) {
+    int n;
+    bool res = isInt(str, &n);
+    if (res && pRes)
+        *pRes = uint16_t(n);
+    return res;
+}
+bool isUint32(const std::string& str, uint32_t* pRes = nullptr) {
     int n;
     bool res = isInt(str, &n);
     if (res && pRes)
@@ -541,6 +549,20 @@ void setup() {
         print(Serial, "Fallback to {} mm.\n", level_on);
         break;
     }
+    uint32_t meas_timeout = 1000;
+    err = nvs_get_u32(nvsHandle, NVS_KEY_MEAS_PERIOD, &meas_timeout);
+    switch (err) {
+    case ESP_OK:
+        print(Serial, "On meas period: {} ms.\n", meas_timeout);
+        break;
+    case ESP_ERR_NVS_NOT_FOUND:
+        print(Serial, "No meas period set, fallback to {} ms.\n", meas_timeout);
+        break;
+    default:
+        print(Serial, "Error {} {} reading meas period!\n", err, esp_err_to_name(err));
+        print(Serial, "Fallback to {} ms.\n", meas_timeout);
+        break;
+    }
 
     BasicOTA OTA;
 
@@ -590,7 +612,7 @@ void setup() {
     }
 
     timeout blink(msec(500));
-    timeout meas(msec(1000));
+    timeout meas(msec(meas_timeout));
     timeout com_reconect(msec(2000));
     com_reconect.cancel();
 
@@ -617,6 +639,7 @@ void setup() {
     }
     bool manual = false;
     bool force_on = false;
+    bool print_raw = false;
 
     const adc_unit_t adc_unit = ADC_UNIT_1;
     const adc_atten_t adc_atten = ADC_ATTEN_DB_11;
@@ -657,7 +680,10 @@ void setup() {
         if (meas) {
             meas.ack();
             raw_level = utsMeas(uts);
-            level = (raw_level < 0) ? LEVEL_ERROR : (level_zero - raw_level);
+            if (print_raw)
+                level = raw_level;
+            else
+                level = (raw_level < 0) ? LEVEL_ERROR : (level_zero - raw_level);
             //level = raw_level;
 
             const float temp = thermometer.readTemperature();
@@ -670,18 +696,19 @@ void setup() {
             if (com_client) {
                 print(com_client, "r: {}; d: {:4} mm; t: {:4.1f} °C; h: {:2.0f}; p: {:4} mV\n", rtc.now().timestamp(DateTime::TIMESTAMP_FULL).c_str(), level, temp, humid, adc_vin);
             }
-
-            if (level < 0 && digitalRead(PIN_RELAY) == HIGH && !force_on) {
-                digitalWrite(PIN_RELAY, 0);
-                print(*user_stream, "LOW LEVEL, swithing off!\n");
-                if (com_client) {
-                    print(com_client, "OFF\n");
-                }
-            } else if (level > level_on && digitalRead(PIN_RELAY) == LOW && !manual) {
-                digitalWrite(PIN_RELAY, 1);
-                print(*user_stream, "Enough level, swithing on.\n");
-                if (com_client) {
-                    print(com_client, "ON\n");
+            if (!print_raw) {
+                if (level < 0 && digitalRead(PIN_RELAY) == HIGH && !force_on) {
+                    digitalWrite(PIN_RELAY, 0);
+                    print(*user_stream, "LOW LEVEL, swithing off!\n");
+                    if (com_client) {
+                        print(com_client, "OFF\n");
+                    }
+                } else if (level > level_on && digitalRead(PIN_RELAY) == LOW && !manual) {
+                    digitalWrite(PIN_RELAY, 1);
+                    print(*user_stream, "Enough level, swithing on.\n");
+                    if (com_client) {
+                        print(com_client, "ON\n");
+                    }
                 }
             }
         }
@@ -786,14 +813,21 @@ void setup() {
             case 'a':
                 manual = false;
                 force_on = false;
+                print_raw = false;
                 print(*user_stream, "Regular mode\n");
                 break;
             case 'O':
                 force_on = true;
                 print(*user_stream, "Force mode, be aware!\n");
                 break;
+            case 'r':
+                print_raw = true;
+                manual = true;
+                digitalWrite(PIN_RELAY, 0);
+                print(*user_stream, "Raw mode, be aware!\n");
+                break;
             case 'R':
-                print(*user_stream, "Resseting...\n");
+                print(*user_stream, "Reseting...\n");
                 delay(msec(100));
                 if (com_client)
                     com_client.stop();
@@ -884,6 +918,9 @@ void setup() {
                     print(*user_stream, "\nNVS commit failed\n");
                 }
                 break;
+            case 'z':
+                print(*user_stream, "Zero level: {}; On level: {}; raw level: {}; meas_period: {}\n", level_zero, level_on, raw_level, meas.get_timeout()/1000);
+                break;
             case 'Z':
                 if (isInt16(read_string(*user_stream, "Enter new zero level: "), &level_zero)) {
                     err = nvs_set_i16(nvsHandle, NVS_KEY_LEVEL_ZERO, level_zero);
@@ -897,6 +934,41 @@ void setup() {
                     }
                 } else {
                     print(*user_stream, "Invalid input\n");
+                }
+                break;
+            case 'o':
+                if (isInt16(read_string(*user_stream, "Enter new on level: "), &level_on)) {
+                    err = nvs_set_i16(nvsHandle, NVS_KEY_LEVEL_ON, level_on);
+                    if (err != ESP_OK) {
+                        print(*user_stream, "\nSaving on level failed, because {}\n", esp_err_to_name(err));
+                        break;
+                    }
+                    err = nvs_commit(nvsHandle);
+                    if (err != ESP_OK) {
+                        print(*user_stream, "\nNVS commit failed\n");
+                    }
+                } else {
+                    print(*user_stream, "Invalid input\n");
+                }
+                break;
+            case 'P': {
+                    uint32_t new_timeout = meas.get_timeout() / 1000;
+                    if (isUint32(read_string(*user_stream, "Enter new meas period [ms]: "), &new_timeout)) {
+                        err = nvs_set_u32(nvsHandle, NVS_KEY_MEAS_PERIOD, new_timeout);
+                        if (err != ESP_OK) {
+                            print(*user_stream, "\nSaving meas period failed, because {}\n", esp_err_to_name(err));
+                            break;
+                        }
+                        err = nvs_commit(nvsHandle);
+                        if (err != ESP_OK) {
+                            print(*user_stream, "\nNVS commit failed\n");
+                        }
+                        meas.set_timeout(msec(new_timeout));
+                        meas.restart();
+                    } else {
+                        print(*user_stream, "Invalid input\n");
+                        break;
+                    }
                 }
                 break;
             case 'f':
@@ -927,9 +999,9 @@ void setup() {
                     print(*user_stream, "Disconnecting old COM client.\n");
                     com_client.stop();
                     com_client_connected = false;
-                    com_reconect.restart();
-                    com_reconect.force();
                 }
+                com_reconect.restart();
+                com_reconect.force();
                 break;
             }
         }
